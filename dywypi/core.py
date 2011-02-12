@@ -8,6 +8,8 @@ from twisted.internet.protocol import ReconnectingClientFactory
 from twisted.python import log
 from twisted.words.protocols import irc
 
+from dywypi.plugin_api import PluginRegistry
+
 nickname = 'dywypi2_0'
 connection_specs = [
     ('irc.veekun.com', 6667, ['#bot']),
@@ -87,6 +89,11 @@ class DywypiConnection(ReconnectingClientFactory):
 
 
 if __name__ == '__main__':
+    # XXX uhh should probably make this an Application and run under twistd,
+    # then add the registry to that
+    plugin_registry = PluginRegistry()
+    plugin_registry.discover_plugins()
+
     connections = []
     for host, port, channels in connection_specs:
         reactor.connectTCP(host, port, DywypiConnection(channels))
