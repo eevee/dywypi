@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 from collections import namedtuple
+import shlex
 import sys
 
 from twisted.internet import reactor
@@ -14,6 +15,8 @@ nickname = 'dywypi2_0'
 connection_specs = [
     ('irc.veekun.com', 6667, ['#bot']),
 ]
+encoding = 'utf8'
+plugin_registry = None
 
 
 class DywypiClient(irc.IRCClient):
@@ -48,11 +51,12 @@ class DywypiClient(irc.IRCClient):
             # Nothing to do here
             return
 
-        # OK XXX do a bunch of command interpreting here whatever
+        # Split the command into words, using shell-ish syntax
+        tokens = [token.decode(encoding) for token in shlex.split(command)]
 
         # XXX this will become 'respond to an event' I guess.  needs a concept
-        # of an event, and to do its own encoding etc.
-        response = u"you said `{0}`".format(command)
+        # of an event.  right now we have "string of words is directed at bot"
+        response = plugin_registry.run_command(tokens[0], tokens[1:])
         if context == 'channel':
             self.msg(channel, u"{0}: {1}".format(user.nickname, response).encode('utf8'))
         else:
@@ -93,6 +97,7 @@ if __name__ == '__main__':
     # then add the registry to that
     plugin_registry = PluginRegistry()
     plugin_registry.discover_plugins()
+    plugin_registry.enable_plugin('echo')
 
     connections = []
     for host, port, channels in connection_specs:

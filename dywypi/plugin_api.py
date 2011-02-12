@@ -48,8 +48,12 @@ class _PluginModuleProxy(object):
             return globals()[name]
 
 class PluginRegistry(object):
-    """Manages plugins, their states (loading, disabling, reloading), and
-    finding commands.
+    """Manages plugins, their states, and finding/executing commands.
+
+    Plugins are always registered if they're known at all, but they may or may
+    not be enabled.  All plugins are disabled initially.  There are three
+    primary operations on plugins: `enable_plugin()`, `disable_plugin()`, and
+    `reload_plugin()`.
 
     This uses the magic of exocet to load plugin modules, so they can be
     unloaded and reloaded freely without restarting the program.  Additionally,
@@ -85,3 +89,40 @@ class PluginRegistry(object):
             # contains
             exocet.load(module, self.exocet_mapper)
         # OK, self.plugin_classes now contains every plugin class we've got
+
+
+    def enable_plugin(self, plugin_name):
+        if plugin_name in self.plugins:
+            # Already enabled!  Do nothing.
+            return
+
+        self.plugins[plugin_name] = self.plugin_classes[plugin_name]()
+        # TODO register commands, or whatever.
+
+    def disable_plugin(self, plugin_name):
+        del self.plugins[plugin_name]
+        # TODO unregister commands!
+
+    def reload_plugin(self, plugin_name):
+        raise NotImplementedError
+
+
+    def run_command(self, command, args):
+        """..."""
+        # PART 1: Find the command
+        # XXX commands in general will be "plugin.command", with commands able
+        # to be explicitly marked as global and then they can just be
+        # "command".  eventually.  for now, commands are just plugin names.
+        plugin_name = command
+        command_name = 'do'
+
+        # PART 2: Do it faggot
+        # XXX more vague planning ahead: should responses be generators?
+        # should we pass a writer object or reply callable?  how does the thing
+        # communicate back????
+        plugin = self.plugins[plugin_name]
+        method = getattr(plugin, command_name)
+        response = method(args)
+
+        # TODO check for unicodes maybe.
+        return response
