@@ -1,7 +1,7 @@
 """Simple (and fast) commands that produce useful information, without
 consulting the network.
 """
-from dywypi.plugin_api import Plugin, command
+from dywypi.plugin_api import Plugin, command, global_command
 
 import unicodedata
 
@@ -42,7 +42,9 @@ unicode_categories = dict(
 class FYIPlugin(Plugin):
     name = 'fyi'
 
-    @command()
+    @global_command('unicode')
+    @command('unicode')
+    @command('hurrdurr')
     def unicode(self, args):
         try:
             if len(args) == 1 and len(args[0]) == 1:

@@ -97,8 +97,8 @@ if __name__ == '__main__':
     # then add the registry to that
     plugin_registry = PluginRegistry()
     plugin_registry.discover_plugins()
-    plugin_registry.enable_plugin('echo')
-    plugin_registry.enable_plugin('fyi')
+    plugin_registry.load_plugin('echo')
+    plugin_registry.load_plugin('fyi')
 
     connections = []
     for host, port, channels in connection_specs:
