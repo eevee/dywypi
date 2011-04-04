@@ -4,8 +4,7 @@ from collections import namedtuple
 import shlex
 import sys
 
-from twisted.internet import reactor
-from twisted.internet.protocol import ReconnectingClientFactory
+from twisted.internet import reactor, protocol
 from twisted.python import log
 from twisted.words.protocols import irc
 
@@ -85,7 +84,7 @@ class DywypiClient(irc.IRCClient):
         return self.user_tuple(nickname, ident, host)
 
 
-class DywypiConnection(ReconnectingClientFactory):
+class DywypiFactory(protocol.ReconnectingClientFactory):
     protocol = DywypiClient
 
     def __init__(self, channels):
@@ -102,7 +101,7 @@ if __name__ == '__main__':
 
     connections = []
     for host, port, channels in connection_specs:
-        reactor.connectTCP(host, port, DywypiConnection(channels))
+        reactor.connectTCP(host, port, DywypiFactory(channels))
 
     log.startLogging(sys.stdout)
     reactor.run()
