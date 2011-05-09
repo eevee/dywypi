@@ -37,24 +37,15 @@ class PluginRegistrationError(Exception): pass
 # - add support for redirects: | > < >&??
 # - handle errors more nicely
 # - I guess make command() work without parens, too, or just require the name
-_PendingPluginCommand = namedtuple('_PendingPluginCommand',
-    ['is_global', 'name', 'doc', 'func_name'])
-def _plugin_hook_decorator(name, doc, is_global):
+def _plugin_hook_decorator(listen_spec):
     # All this really does is stash the arguments away until PluginMeta, below,
     # catches them and moves them to a class in the list.
     def decorator(func):
-        try:
-            command_specs = func._command_specs
-        except AttributeError:
-            command_specs = []
-            func._command_specs = command_specs
+        if not hasattr(func, '_plugin_listeners'):
+            func._plugin_listeners = []
 
-        command_specs.append(_PendingPluginCommand(
-            is_global=is_global,
-            name=name or func.__name__,
-            doc=doc or func.__doc__,
-            func_name=func.__name__,
-        ))
+        listen_spec['func_name'] = func.__name__
+        func._plugin_listeners.append(listen_spec)
 
         return func
 
@@ -68,14 +59,16 @@ def command(name=None, doc=None):
     function.  `doc` is a help string provided to users; it defaults to the
     function's docstring.
     """
-    return _plugin_hook_decorator(name, doc, is_global=False)
+    return _plugin_hook_decorator(dict(
+        event_type='local_command', name=name, doc=doc, is_global=False))
 
 def global_command(name, doc=None):
     """Similar to `command()`, but the function can be called without the
     plugin prefix.  The name is required, in the vain hope that plugin
     developers will think more carefully about cluttering the global namespace.
     """
-    return _plugin_hook_decorator(name, doc, is_global=True)
+    return _plugin_hook_decorator(dict(
+        event_type='global_command', name=name, doc=doc, is_global=True))
 
 
 # TODO: make a @listen thing.  commands can't be general events though because we need to know that exactly one thing corresponds to a command OR we throw an error at eithe rload or runtime
@@ -100,12 +93,13 @@ class PluginMeta(type):
             # itself
             cls._plugins = {}
 
-        cls._command_specs = []
-        # Hunt for commands in this plugin, indicated by being decorated
+        # Amass all the event listeners in this plugin; they've been decorated
+        # with an appropriate attribute
+        cls._plugin_listeners = []
         for attr_name, attr in attrs.iteritems():
             try:
-                cls._command_specs.extend(attr._command_specs)
-                del attr._command_specs
+                cls._plugin_listeners.extend(attr._plugin_listeners)
+                del attr._plugin_listeners
             except AttributeError:
                 pass
 
@@ -162,10 +156,11 @@ class PluginRegistry(object):
     def __init__(self):
         # plugin_name => plugin object
         self.plugins = {}
-        # plugin_name => set of command names (used for unloading)
-        self.plugin_command_map = {}
         # command_name => PluginCommand object
         self.commands = {}
+
+        # Small objects representing plugin event listeners
+        self.listeners = []
 
         self.loaded_module_names = set()
 
@@ -212,37 +207,38 @@ class PluginRegistry(object):
 
         plugin_obj = self.plugin_classes[plugin_name]()
         self.plugins[plugin_name] = plugin_obj
-        self.plugin_command_map[plugin_name] = set()
 
-        # Register commands
-        for command_spec in plugin_obj._command_specs:
-            if command_spec.is_global:
-                fqn = command_spec.name
+        # Collect event listeners
+        # TODO 'doc' here doesn't make any sense for general listeners
+        for listen_spec in plugin_obj._plugin_listeners:
+            # Commands are a little different, as they're aimed directly at a
+            # particular plugin
+            if listen_spec['event_type'] in ('local_command', 'global_command'):
+                if listen_spec['event_type'] == 'global_command':
+                    fqn = listen_spec['name']
+                else:
+                    fqn = '.'.join((plugin_name, listen_spec['name']))
+
+                if fqn in self.commands:
+                    raise PluginRegistrationError(
+                        """Can't have two commands named {0}""".format(fqn))
+
+                # XXX what should this init look like?  what does a command
+                # need to know?  docs, usage...?
+                # TODO plugin_command should probably just be callable
+                self.commands[fqn] = PluginCommand(
+                    name=fqn,
+                    doc=listen_spec['doc'],
+                    command=getattr(plugin_obj, listen_spec['func_name']),
+                )
+
             else:
-                fqn = '.'.join((plugin_name, command_spec.name))
-
-            if fqn in self.commands:
-                raise PluginRegistrationError(
-                    """Can't have two commands named {0}""".format(fqn))
-
-            # XXX what should this init look like?  what does a command need to know?  docs, usage...?
-            # TODO plugin_command should probably just be callable
-            plugin_command = PluginCommand(
-                name=fqn,
-                doc=command_spec.doc,
-                command=getattr(plugin_obj, command_spec.func_name),
-            )
-
-            self.commands[fqn] = plugin_command
-            self.plugin_command_map[plugin_name].add(fqn)
+                # TODO generic event support etc
+                pass
 
 
     def unload_plugin(self, plugin_name):
-        for command_name in self.plugin_command_map[plugin_name]:
-            del self.commands[command_name]
-
         del self.plugins[plugin_name]
-        del self.plugin_command_map[plugin_name]
 
     def reload_plugin(self, plugin_name):
         raise NotImplementedError
