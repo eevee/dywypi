@@ -2,6 +2,9 @@
 from collections import namedtuple
 import exocet
 import functools
+import sys
+
+from twisted.python import log
 
 
 class PluginRegistrationError(Exception): pass
@@ -75,6 +78,9 @@ def global_command(name, doc=None):
     return _plugin_hook_decorator(name, doc, is_global=True)
 
 
+# TODO: make a @listen thing.  commands can't be general events though because we need to know that exactly one thing corresponds to a command OR we throw an error at eithe rload or runtime
+
+
 ### Plugin class implementation
 
 class PluginMeta(type):
@@ -120,16 +126,6 @@ class Plugin(object):
 
 ### Plugin command registry; loading, unloading, dispatching
 
-class _PluginModuleProxy(object):
-    def __init__(self, proxy_class):
-        self.proxy_class = proxy_class
-
-    def __getattribute__(self, name):
-        if name == 'Plugin':
-            return object.__getattribute__(self, 'proxy_class')
-        else:
-            return globals()[name]
-
 class PluginCommand(object):
     def __init__(self, name, doc, command):
         self.name = name
@@ -139,16 +135,29 @@ class PluginCommand(object):
 class PluginRegistry(object):
     """Manages plugins, their states, and finding/executing commands.
 
-    Plugins are always registered if they're known at all, but they may or may
-    not be loaded.  All plugins are unloaded initially.  There are three
-    primary operations on plugins: `load_plugin()`, `unload_plugin()`, and
-    `reload_plugin()`.
-
     This uses the magic of exocet to load plugin modules, so they can be
     unloaded and reloaded freely without restarting the program.  Additionally,
     you can technically have two plugin registries, and each will have an
     entirely separate set of plugin code.
+
+    Once a registry is created, call `scan()` to import all dywypi.plugins.*
+    modules, which registers all the plugins as *known*.  If new modules are
+    added at runtime, calling `scan()` again will pick them up.
+
+    All plugins are unloaded at startup.  "Loading" a plugin just means
+    instantiating a plugin object; your plugin's `__init__` method should do
+    any necessary setup.
+
+    When a plugin is unloaded, its plugin object is deleted.  The module source
+    will be reloaded next time the plugin is loaded.
     """
+
+    # TODO how to handle plugin teardown?
+    # TODO need to feed plugins a proxy reactor so their connections can be canceled when we're done
+
+    # XXX this needs some better sense of arrangement!
+    # MODULES have PLUGINS have COMMANDS.
+    # need to get anywhere in this tree given a plugin/module/command name  :(
 
     def __init__(self):
         # plugin_name => plugin object
@@ -157,6 +166,8 @@ class PluginRegistry(object):
         self.plugin_command_map = {}
         # command_name => PluginCommand object
         self.commands = {}
+
+        self.loaded_module_names = set()
 
         # This is sort of crazy, but: for plugins to register themselves, they
         # need to use a base class with our metaclass, and we want to keep that
@@ -167,23 +178,31 @@ class PluginRegistry(object):
             __metaclass__ = PluginMeta
 
         # TODO make this also localize every module loaded by plugins, but
-        # shared within this registry
+        # shared within this registry?
         self.exocet_mapper = exocet.pep302Mapper.withOverrides({
-            __name__: _PluginModuleProxy(LocalPlugin),
+            __name__: exocet.proxyModule(
+                sys.modules[__name__], Plugin=LocalPlugin),
         })
         self.plugin_classes = LocalPlugin._plugins  # instantiated by metaclass
 
-    def discover_plugins(self):
-        """Loads every package under dywypi.plugins and finds plugins they
-        define.  You probably want to call this early on.
+    def scan(self):
+        """Imports every module under dywypi.plugins and finds the plugins they
+        define.  Modules that have already been loaded are not loaded again.
         """
+        log.msg('Scanning for plugin modules')
         for module in exocet.getModule('dywypi.plugins').iterModules():
+            module_name = module.name
+            if module.name in self.loaded_module_names:
+                log.msg("...already imported: {0}".format(module.name))
+                continue
+
+            self.loaded_module_names.add(module.name)
+            log.msg("...importing: {0}".format(module.name))
+
             # No need to do anything with the loaded module; the plugin
             # metaclass kicks in and we don't care about anything else it
             # contains
             exocet.load(module, self.exocet_mapper)
-        # OK, self.plugin_classes now contains every plugin class we've got
-
 
     def load_plugin(self, plugin_name):
         if plugin_name in self.plugins:
@@ -239,3 +258,6 @@ class PluginRegistry(object):
 
         # TODO check for unicodes maybe.
         return response
+
+    # TODO make these less of an exception
+    #def core_scan()...
