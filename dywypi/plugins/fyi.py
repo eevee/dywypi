@@ -67,3 +67,18 @@ class FYIPlugin(Plugin):
             category=category,
             category_name=unicode_categories.get(category, "unknown"),
         )
+
+    @global_command('jdic')
+    def wwwjdic(self, args):
+        from twisted.web.client import getPage
+        d = getPage(
+            "http://www.csse.monash.edu.au/~jwb/cgi-bin/wwwjdic.cgi?1ZURchair",
+        )
+
+        def munge_body(response):
+            import re
+            response = re.sub("(.|\n)+<pre>", "", response)
+            return response.decode('utf8')  # XXX wait really?
+
+        d.addCallback(munge_body)
+        return d
