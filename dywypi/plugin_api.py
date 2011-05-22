@@ -37,6 +37,7 @@ class PluginRegistrationError(Exception): pass
 # - add support for redirects: | > < >&??
 # - handle errors more nicely
 # - I guess make command() work without parens, too, or just require the name
+
 def _plugin_hook_decorator(listen_spec):
     # All this really does is stash the arguments away until PluginMeta, below,
     # catches them and moves them to a class in the list.
@@ -70,6 +71,8 @@ def global_command(name, doc=None):
     return _plugin_hook_decorator(dict(
         event_type='global_command', name=name, doc=doc, is_global=True))
 
+def handler(event_type):
+    pass
 
 # TODO: make a @listen thing.  commands can't be general events though because we need to know that exactly one thing corresponds to a command OR we throw an error at eithe rload or runtime
 

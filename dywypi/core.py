@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 from collections import namedtuple
 import shlex
 import sys
@@ -14,6 +12,39 @@ connection_specs = [
 ]
 encoding = 'utf8'
 
+# TODO make Event and CommandEvent and dispatch that
+# TODO this context thinger should probably be part of the dywypi service; nothing should stick to the client/factory
+class IRCContext(object):
+    def __init__(self, name, ident, host, channel):
+        self.name = name
+        self.ident = ident
+        self.host = host
+        self.channel = channel
+
+    @classmethod
+    def parse(cls, raw_user, channel):
+        # XXX is the username actually supposed to be decoded?  does it have to
+        # be ascii?
+        # Three possible contexts: server message, user message in channel,
+        # direct private message.
+        if '!' in raw_user:
+            name, usermask = raw_user.split('!', 1)
+            ident, host = usermask.split('@', 1)
+        else:
+            name = raw_user
+            ident = host = None
+
+        if not channel.startswith('#'):
+            channel = None
+
+        return cls(name, ident, host, channel)
+
+    @property
+    def is_server(self):
+        return self.host is None
+
+
+# XXX REALLY REALLY NEED FIRST-CLASS VERSIONS OF SERVERS, CHANNELS, AND CONTEXT
 class DywypiClient(irc.IRCClient):
     nickname = nickname
 
@@ -24,47 +55,35 @@ class DywypiClient(irc.IRCClient):
             self.join(channel)
 
     def privmsg(self, raw_user, channel, msg):
-        # XXX gross
-        if '!' not in raw_user:
+        ctx = IRCContext.parse(raw_user, channel)
+        if ctx.is_server:
             return
 
-        user = self._parse_user(raw_user)
-        # First see if this is actually aimed at us
-        command = None
-
-        if channel.startswith('#'):
-            context = 'channel'
+        if ctx.channel:
             # In a channel, only accept direct addressing
-            if msg.startswith(self.nickname + ': '):
-                command = msg[len(self.nickname) + 2:]
-        else:
-            context = 'privmsg'
-            # In a private message, everything is aimed at us
-            command = msg
+            if not msg.startswith(self.nickname + ': '):
+                return
 
-        if not command:
-            # Nothing to do here
-            return
-
-        # Split the command into words, using shell-ish syntax
-        tokens = [token.decode(encoding) for token in shlex.split(command)]
-
-        if context == 'channel':
+            command_string = msg[len(self.nickname) + 2:]
             def respond(response):
-                self.msg(channel, self._encode(u"{0}: {1}".format(user.nickname, response)))
+                self.msg(channel, self._encode(u"{0}: {1}".format(ctx.name, response)))
         else:
+            # In a private message, everything is aimed at us
+            command_string = msg
             def respond(response):
                 self.msg(
-                    self._encode(user.nickname),
+                    self._encode(ctx.name),
                     self._encode(response),
                 )
+
+        # Split the command into words, using shell-ish syntax
+        tokens = [token.decode(encoding) for token in shlex.split(command_string)]
+        command = tokens.pop(0)
 
         # XXX this will become 'respond to an event' I guess.  needs a concept
         # of an event.  right now we have "string of words is directed at bot"
         response = self.factory.service.dispatch_event(
-            responder=respond, command=tokens[0], args=tokens[1:])
-
-        return
+            responder=respond, command=command, args=tokens)
 
     ### INTERNAL METHODS
 
@@ -78,20 +97,6 @@ class DywypiClient(irc.IRCClient):
         """
         # TODO encoding per channel?
         return s.encode('utf8')
-
-    user_tuple = namedtuple('user_tuple', ['nickname', 'ident', 'host'])
-    def _parse_user(self, raw_user):
-        """Parses a user identifier like a!b@c and returns a namedtuple of
-        nickname, ident, and host.
-
-        Also takes care of the decoding.
-        """
-        # XXX is the username actually supposed to be decoded?  does it have to
-        # be ascii?
-        log.err(raw_user)
-        nickname, remainder = self._decode(raw_user).split('!', 2)
-        ident, host = remainder.split('@', 2)
-        return self.user_tuple(nickname, ident, host)
 
 
 class DywypiFactory(protocol.ReconnectingClientFactory):
