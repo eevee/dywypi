@@ -1,9 +1,13 @@
 """Simple (and fast) commands that produce useful information, without
 consulting the network.
 """
-from dywypi.plugin_api import Plugin, command, global_command
-
+import re
 import unicodedata
+
+from twisted.internet.defer import inlineCallbacks, returnValue
+from twisted.web.client import getPage
+
+from dywypi.plugin_api import Plugin, command, global_command
 
 unicode_categories = dict(
     Cc='Other, Control',
@@ -69,16 +73,10 @@ class FYIPlugin(Plugin):
         )
 
     @global_command('jdic')
+    @inlineCallbacks
     def wwwjdic(self, args):
-        from twisted.web.client import getPage
-        d = getPage(
-            "http://www.csse.monash.edu.au/~jwb/cgi-bin/wwwjdic.cgi?1ZURchair",
-        )
+        response = yield getPage(
+            "http://www.csse.monash.edu.au/~jwb/cgi-bin/wwwjdic.cgi?1ZURchair")
 
-        def munge_body(response):
-            import re
-            response = re.sub("(.|\n)+<pre>", "", response)
-            return response.decode('utf8')  # XXX wait really?
-
-        d.addCallback(munge_body)
-        return d
+        response = re.sub("(.|\n)+<pre>", "", response)
+        returnValue(response.decode('utf8'))  # XXX wait really?
