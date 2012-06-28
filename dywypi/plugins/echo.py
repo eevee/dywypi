@@ -1,4 +1,4 @@
-from dywypi.plugin_api import Plugin, command
+from dywypi.plugin_api import Plugin, global_command
 
 class EchoPlugin(Plugin):
     name = 'echo'
