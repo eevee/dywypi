@@ -7,9 +7,6 @@ from twisted.python import log
 from twisted.words.protocols import irc
 
 nickname = 'dywypi2_0'
-connection_specs = [
-    ('irc.veekun.com', 6667, ['#bot']),
-]
 encoding = 'utf8'
 
 # TODO make Event and CommandEvent and dispatch that

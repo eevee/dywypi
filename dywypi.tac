@@ -7,7 +7,7 @@ from twisted.internet import defer
 from twisted.python import log
 from twisted.web import static, server
 
-from dywypi.core import DywypiFactory, connection_specs
+from dywypi.core import DywypiFactory
 from dywypi.plugin_api import PluginRegistry
 
 # XXX also need to rig something to make IRC appear more stateful.
@@ -38,9 +38,14 @@ class DywypiService(service.MultiService):
 
 master_service = DywypiService()
 
-for host, port, channels in connection_specs:
-    factory = DywypiFactory(master_service, channels)
-    internet.TCPClient(host, port, factory).setServiceParent(master_service)
+# TODO load config here  8)
+import dywypi.state
+for network in [dywypi.state.Network()]:
+    # TODO am i supposed to pass the service in or what is happening
+    server = network.servers[0]
+    factory = DywypiFactory(master_service, network.channels)
+    internet.TCPClient(server.host, server.port, factory) \
+        .setServiceParent(master_service)
 
 application = service.Application("dywypi")
 master_service.setServiceParent(application)
