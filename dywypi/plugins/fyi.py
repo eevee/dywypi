@@ -3,6 +3,7 @@ consulting the network.
 """
 import re
 import unicodedata
+import urllib
 
 from twisted.internet.defer import inlineCallbacks, returnValue
 from twisted.web.client import getPage
@@ -75,8 +76,29 @@ class FYIPlugin(Plugin):
     @global_command('jdic')
     @inlineCallbacks
     def wwwjdic(self, args):
-        response = yield getPage(
-            "http://www.csse.monash.edu.au/~jwb/cgi-bin/wwwjdic.cgi?1ZURchair")
+        # Brief explanation of this API:
+        # Query string is nMtkxxxxxx
+        # n, dictionary: 1 for EDICT
+        # M, display mode: M for user-facing, Z for raw
+        # t, search type: U for dictionary in utf8, M for kanji utf8
+        # k, key type: E or J for dictionary, P for common words only, Q for
+        #     exact, R for P+Q.  M plus some more options for kanji.
+        # xxxxxx is the search term
+        # Docs: http://www.csse.monash.edu.au/~jwb/wwwjdicinf.html#backdoor_tag
 
-        response = re.sub("(.|\n)+<pre>", "", response)
-        returnValue(response.decode('utf8'))  # XXX wait really?
+        # TODO kanji lookup?  ooh.
+
+        term = urllib.quote_plus(args[0].encode('utf8'))
+        response = yield getPage(
+            b"http://www.csse.monash.edu.au/~jwb/cgi-bin/wwwjdic.cgi?1ZUR" + term)
+
+        # TODO logging
+        print response
+        m = re.search(b"<pre>(.+)</pre>", response, flags=re.IGNORECASE | re.DOTALL)
+        if not m:
+            returnValue(u'Nothing found.')
+
+        # With 'Z' (raw) mode, the output is guaranteed to always be UTF-8
+        lines = m.group(1).decode('utf8').strip().splitlines()
+        # TODO better returning
+        returnValue(lines[0])
