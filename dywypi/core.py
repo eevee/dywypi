@@ -42,13 +42,13 @@ class IRCContext(object):
 
 
 # XXX REALLY REALLY NEED FIRST-CLASS VERSIONS OF SERVERS, CHANNELS, AND CONTEXT
-class DywypiClient(irc.IRCClient):
+class DywypiProtocol(irc.IRCClient):
     nickname = nickname
 
     ### EVENT HANDLERS
 
     def signedOn(self):
-        for channel in self.factory.channels:
+        for channel in self.factory.irc_network.channels:
             self.join(channel)
 
     def privmsg(self, raw_user, channel, msg):
@@ -79,7 +79,7 @@ class DywypiClient(irc.IRCClient):
 
         # XXX this will become 'respond to an event' I guess.  needs a concept
         # of an event.  right now we have "string of words is directed at bot"
-        response = self.factory.service.dispatch_event(
+        response = self.factory.hub.dispatch_event(
             responder=respond, command=command, args=tokens)
 
     ### INTERNAL METHODS
@@ -97,8 +97,8 @@ class DywypiClient(irc.IRCClient):
 
 
 class DywypiFactory(protocol.ReconnectingClientFactory):
-    protocol = DywypiClient
+    protocol = DywypiProtocol
 
-    def __init__(self, service, channels):
-        self.service = service
-        self.channels = channels
+    def __init__(self, hub, irc_network):
+        self.hub = hub
+        self.irc_network = irc_network

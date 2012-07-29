@@ -1,6 +1,7 @@
 import os
 from twisted.application import service, internet
 from twisted.internet import defer
+from twisted.internet.ssl import ClientContextFactory
 from twisted.python import log
 from twisted.web import static, server
 
@@ -16,10 +17,11 @@ def enforce_unicode(res):
         raise ValueError("Return values must be Unicode objects")
     return res
 
-class DywypiService(service.MultiService):
-    def __init__(self):
-        service.MultiService.__init__(self)
 
+class Dywypi(object):
+    """The brains of this operation."""
+
+    def __init__(self):
         self.plugin_registry = PluginRegistry()
         self.plugin_registry.scan()
         self.plugin_registry.load_plugin('echo')
@@ -34,17 +36,67 @@ class DywypiService(service.MultiService):
         d.addErrback(lambda failure: responder(u"resonance cascade imminent, evacuate immediately"))
 
 
+class DywypiClient(service.Service):
+    """IRC client -- the part that makes connections, not the part that speaks
+    the protocol.
+
+    I know how to round-robin to a cluster of servers.  Or, I will, someday.
+
+    I'm based on the `twisted.application.internet.TCPClient` service.
+    """
+
+    _connection = None
+
+    def __init__(self, hub, irc_network, reactor=None, *args, **kwargs):
+        self.hub = hub
+        self.irc_network = irc_network
+        self.reactor = reactor
+
+        # Other args go to the reactor later
+        self.args = args
+        self.kwargs = kwargs
+
+    def startService(self):
+        service.Service.startService(self)
+        self._connection = self._make_connection()
+
+    def stopService(self):
+        service.Service.stopService(self)
+        if self._connection is not None:
+            self._connection.disconnect()
+            del self._connection
+
+    def _make_connection(self):
+        """Pick the next server for this network, and try connecting to it.
+
+        Returns the `Connector` object.
+        """
+        reactor = self.reactor
+        if reactor is None:
+            from twisted.internet import reactor
+
+        # TODO actually do that round-robin thing
+        irc_server = self.irc_network.servers[0]
+        factory = DywypiFactory(self.hub, self.irc_network)
+
+        # TODO timeout, bind address?
+        if irc_server.ssl:
+            return reactor.connectSSL(
+                irc_server.host, irc_server.port, factory, ClientContextFactory())
+        else:
+            return reactor.connectTCP(
+                irc_server.host, irc_server.port, factory)
+
+
 def make_application():
-    master_service = DywypiService()
+    hub = Dywypi()
+
+    master_service = service.MultiService()
 
     # TODO load config here  8)
     import dywypi.state
     for network in [dywypi.state.Network()]:
-        # TODO am i supposed to pass the service in or what is happening
-        server = network.servers[0]
-        factory = DywypiFactory(master_service, network.channels)
-        internet.TCPClient(server.host, server.port, factory) \
-            .setServiceParent(master_service)
+        DywypiClient(hub, network).setServiceParent(master_service)
 
     application = service.Application("dywypi")
     master_service.setServiceParent(application)
