@@ -26,14 +26,21 @@ class Dywypi(object):
         self.plugin_registry.scan()
         self.plugin_registry.load_plugin('echo')
         self.plugin_registry.load_plugin('fyi')
+        self.plugin_registry.load_plugin('pagetitles')
 
-    def dispatch_event(self, responder, command, args):
-        d = defer.maybeDeferred(
-            self.plugin_registry.run_command, command, args)
-        d.addCallback(enforce_unicode)
-        d.addCallback(responder)
+    def fire(self, event, *a, **kw):
+        for func in self.plugin_registry.get_listeners(event):
+            self._make_deferred(func, event, *a, **kw)
+
+
+    def run_command(self, command, event):
+        self._make_deferred(self.plugin_registry.run_command, command, event)
+
+    def _make_deferred(self, func, *args, **kwargs):
+        d = defer.maybeDeferred(func, *args, **kwargs)
         d.addErrback(log.err)
         d.addErrback(lambda failure: responder(u"resonance cascade imminent, evacuate immediately"))
+
 
 
 class DywypiClient(service.Service):

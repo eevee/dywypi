@@ -7,6 +7,12 @@ import sys
 from twisted.python import log
 
 
+
+
+
+from dywypi.core import Event
+
+
 class PluginRegistrationError(Exception): pass
 
 
@@ -147,9 +153,8 @@ class PluginRegistry(object):
         self.plugins = {}
         # command_name => PluginCommand object
         self.commands = {}
-
-        # Small objects representing plugin event listeners
-        self.listeners = []
+        # event class => [callable]
+        self.listeners = {}
 
         self.loaded_module_names = set()
 
@@ -177,6 +182,8 @@ class PluginRegistry(object):
         # Collect event listeners
         # TODO 'doc' here doesn't make any sense for general listeners
         for listen_spec in plugin_obj._plugin_listeners:
+            method = getattr(plugin_obj, listen_spec['func_name'])
+
             # Commands are a little different, as they're aimed directly at a
             # particular plugin
             if listen_spec['event_type'] in ('local_command', 'global_command'):
@@ -195,12 +202,16 @@ class PluginRegistry(object):
                 self.commands[fqn] = PluginCommand(
                     name=fqn,
                     doc=listen_spec['doc'],
-                    command=getattr(plugin_obj, listen_spec['func_name']),
+                    command=method,
                 )
 
             else:
+                if not issubclass(listen_spec['event_type'], Event):
+                    raise TypeError("Can only listen to Event subclasses")
+
                 # TODO generic event support etc
-                pass
+                self.listeners.setdefault(listen_spec['event_type'], []).append(method)
+
 
 
     def unload_plugin(self, plugin_name):
@@ -220,6 +231,14 @@ class PluginRegistry(object):
 
         # TODO check for unicodes maybe.
         return response
+
+    def get_listeners(self, event):
+        for cls in event.__class__.__mro__:
+            if cls is Event:
+                break
+
+            for func in self.listeners.get(cls, []):
+                yield func
 
     # TODO make these less of an exception
     #def core_scan()...

@@ -9,78 +9,102 @@ from twisted.words.protocols import irc
 nickname = 'dywypi2_0'
 encoding = 'utf8'
 
-# TODO make Event and CommandEvent and dispatch that
-# TODO this context thinger should probably be part of the dywypi service; nothing should stick to the client/factory
-class IRCContext(object):
-    def __init__(self, name, ident, host, channel):
-        self.name = name
-        self.ident = ident
-        self.host = host
+
+class Event(object):
+    def __init__(self, peer, channel, _protocol, command, argv):
+        # TODO need to look up protocol in case there's a reconnect
+        self.peer = peer
         self.channel = channel
+        self._protocol = _protocol
 
-    @classmethod
-    def parse(cls, raw_user, channel):
-        # XXX is the username actually supposed to be decoded?  does it have to
-        # be ascii?
-        # Three possible contexts: server message, user message in channel,
-        # direct private message.
-        if '!' in raw_user:
-            name, usermask = raw_user.split('!', 1)
-            ident, host = usermask.split('@', 1)
+        self.command = command
+        self.argv = argv
+
+    def reply(self, *messages):
+        """Reply to the source of the event."""
+        # XXX not every event has a source
+        # XXX oughta require unicode, or cast, or somethin
+
+        if self.channel:
+            prefix = self.peer.nick + ': '
+            target = self.channel.name
         else:
-            name = raw_user
-            ident = host = None
+            prefix = ''
+            target = self.peer.nick
 
-        if not channel.startswith('#'):
-            channel = None
+        for message in messages:
+            # XXX
+            message = message.encode('utf8')
+            self._protocol.msg(target, prefix + message)
 
-        return cls(name, ident, host, channel)
+class CommandEvent(Event): pass
 
-    @property
-    def is_server(self):
-        return self.host is None
+class MessageEvent(Event):
+    def __init__(self, *args, **kwargs):
+        self.message = kwargs.pop('message')
+
+        super(MessageEvent, self).__init__(*args, **kwargs)
+
+class PublicMessageEvent(MessageEvent): pass
+
 
 
 # XXX REALLY REALLY NEED FIRST-CLASS VERSIONS OF SERVERS, CHANNELS, AND CONTEXT
 class DywypiProtocol(irc.IRCClient):
     nickname = nickname
 
+    @property
+    def irc_network(self):
+        return self.factory.irc_network
+
+    @property
+    def hub(self):
+        return self.factory.hub
+
+
     ### EVENT HANDLERS
 
     def signedOn(self):
-        for channel in self.factory.irc_network.channels:
-            self.join(channel)
+        for channel in self.irc_network.channels:
+            self.join(channel.name)
 
-    def privmsg(self, raw_user, channel, msg):
-        ctx = IRCContext.parse(raw_user, channel)
-        if ctx.is_server:
+    def joined(self, channel_name):
+        self.irc_network.find_channel(channel_name).joined = True
+
+    def privmsg(self, raw_user, channel_name, msg):
+        peer = self.irc_network.find_peer(raw_user)
+
+        if peer.is_server:
             return
 
-        if ctx.channel:
-            # In a channel, only accept direct addressing
+        if channel_name[0] in '#&+':
+            channel = self.irc_network.find_channel(channel_name)
+
+            # In a channel, only direct addressing is a command
             if not msg.startswith(self.nickname + ': '):
+                self.hub.fire(PublicMessageEvent(
+                    peer, channel, self,
+                    command=None, argv=None,
+                    message=msg))
                 return
 
             command_string = msg[len(self.nickname) + 2:]
-            def respond(response):
-                self.msg(channel, self._encode(u"{0}: {1}".format(ctx.name, response)))
         else:
             # In a private message, everything is aimed at us
+            channel = None
             command_string = msg
-            def respond(response):
-                self.msg(
-                    self._encode(ctx.name),
-                    self._encode(response),
-                )
 
         # Split the command into words, using shell-ish syntax
         tokens = [token.decode(encoding) for token in shlex.split(command_string)]
         command = tokens.pop(0)
 
+        event = CommandEvent(
+            peer, channel, self,
+            command=command, argv=tokens)
+
         # XXX this will become 'respond to an event' I guess.  needs a concept
         # of an event.  right now we have "string of words is directed at bot"
-        response = self.factory.hub.dispatch_event(
-            responder=respond, command=command, args=tokens)
+        self.hub.run_command(command, event)
 
     ### INTERNAL METHODS
 
