@@ -222,13 +222,37 @@ class UnselectableListBox(urwid.ListBox):
     _selectable = False
 
 
+class FancyEdit(urwid.Edit):
+    """An Edit control with history, that broadcasts its value when Enter is
+    pressed.
+    """
+    def __init__(self, *args, **kwargs):
+        self.__super.__init__(*args, **kwargs)
+        self._history = []
+
+    def keypress(self, size, key):
+        if key == 'enter':
+            line = self.edit_text
+            urwid.emit_signal(self, 'line_submitted', line)
+            self._history.append(line)
+            self.edit_text = ''
+
+        else:
+            return self.__super.keypress(size, key)
+
+
+urwid.register_signal(FancyEdit, ['line_submitted'])
+
+
 class DywypiShell(TwistedUrwidBridge):
     """Creates a Twisted-friendly urwid app that allows interacting with dywypi
     via a shell.
     """
     def build_toplevel_widget(self):
         self.pane = UnselectableListBox(urwid.SimpleListWalker([]))
-        prompt = urwid.Edit('>>> ')
+        prompt = FancyEdit('>>> ')
+        urwid.connect_signal(prompt, 'line_submitted', self.handle_line)
+
         return urwid.Pile(
             [
                 self.pane,
@@ -236,6 +260,9 @@ class DywypiShell(TwistedUrwidBridge):
             ],
             focus_item=prompt,
         )
+
+    def unhandled_input(self, key):
+        print key
 
     def start(self):
         super(DywypiShell, self).start()
@@ -251,6 +278,10 @@ class DywypiShell(TwistedUrwidBridge):
         self.pane.body.append(urwid.Text((color, line.rstrip())))
         self.pane.set_focus(len(self.pane.body) - 1)
         self.redraw()
+
+    def handle_line(self, line):
+        """Deal with a line of input."""
+        print line
 
 
 class DywypiShellLogObserver(log.FileLogObserver):

@@ -50,14 +50,14 @@ class FYIPlugin(Plugin):
     @global_command('unicode')
     @command('unicode')
     @command('hurrdurr')
-    def unicode(self, args):
+    def unicode(self, event):
         try:
-            if len(args) == 1 and len(args[0]) == 1:
+            if len(event.argv) == 1 and len(event.argv[0]) == 1:
                 # This is probably a character
-                char = args[0]
+                char = event.argv[0]
             else:
                 # This is probably a name
-                char = unicodedata.lookup(u' '.join(args))
+                char = unicodedata.lookup(u' '.join(event.argv))
         except (KeyError, ValueError):
             return u"I don't know what that character is."
 
@@ -75,7 +75,7 @@ class FYIPlugin(Plugin):
 
     @global_command('jdic')
     @inlineCallbacks
-    def wwwjdic(self, args):
+    def wwwjdic(self, event):
         # Brief explanation of this API:
         # Query string is nMtkxxxxxx
         # n, dictionary: 1 for EDICT
@@ -88,7 +88,7 @@ class FYIPlugin(Plugin):
 
         # TODO kanji lookup?  ooh.
 
-        term = urllib.quote_plus(args[0].encode('utf8'))
+        term = urllib.quote_plus(event.argv[0].encode('utf8'))
         response = yield getPage(
             b"http://www.csse.monash.edu.au/~jwb/cgi-bin/wwwjdic.cgi?1ZUR" + term)
 
@@ -100,5 +100,4 @@ class FYIPlugin(Plugin):
 
         # With 'Z' (raw) mode, the output is guaranteed to always be UTF-8
         lines = m.group(1).decode('utf8').strip().splitlines()
-        # TODO better returning
-        returnValue(lines[0])
+        event.reply(lines[0])

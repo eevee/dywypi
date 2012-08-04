@@ -1,11 +1,6 @@
 from dywypi.event import listen
+from dywypi.event import PublicMessageEvent
 from dywypi.plugin_api import Plugin
-
-
-
-
-from dywypi.core import PublicMessageEvent
-
 
 class PageTitlesPlugin(Plugin):
     name = 'pagetitles'

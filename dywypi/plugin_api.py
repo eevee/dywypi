@@ -1,16 +1,9 @@
 """Provides the base class for plugins and dywypi's access to them."""
-from collections import namedtuple
-import functools
 import pkgutil
-import sys
 
 from twisted.python import log
 
-
-
-
-
-from dywypi.core import Event
+from dywypi.event import Event
 
 
 class PluginRegistrationError(Exception): pass
