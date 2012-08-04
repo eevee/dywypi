@@ -1,36 +1,11 @@
 # encoding: utf-8
+"""Shell interface for dywypi.  Allows urwid to take over the terminal and do
+interesting things.
+"""
 # Many thanks to habnabit and aafshar, from whom I stole judiciously.
 # Their implementations:
 # - https://code.launchpad.net/~habnabit/+junk/urwid-protocol
 # - https://bitbucket.org/aafshar/txurwid-main/src
-"""
-Twisted integration for Urwid.
-
-This module allows you to serve Urwid applications remotely over ssh.
-
-The idea is that the server listens as an SSH server, and each connection is
-routed by Twisted to urwid, and the urwid UI is routed back to the console.
-The concept was a bit of a head-bender for me, but really we are just sending
-escape codes and the what-not back to the console over the shell that ssh has
-created. This is the same service as provided by the UI components in
-twisted.conch.insults.window, except urwid has more features, and seems more
-mature.
-
-This module is not highly configurable, and the API is not great, so
-don't worry about just using it as an example and copy-pasting.
-
-Process
--------
-
-
-TODO:
-
-- better gpm tracking: there is no place for os.Popen in a Twisted app I
-  think.
-
-Copyright: 2010, Ali Afshar <aafshar@gmail.com>
-License:   MIT <http://www.opensource.org/licenses/mit-license.php>
-"""
 
 import os
 
@@ -66,20 +41,8 @@ class ProtocolFileAdapter(Adapter):
 
 
 class TwistedScreen(Screen):
-    """A Urwid screen which knows about the Twisted terminal protocol that is
-    driving it.
-
-    A Urwid screen is responsible for:
-
-    1. Input
-    2. Output
-
-    Input is achieved in normal urwid by passing a list of available readable
-    file descriptors to the event loop for polling/selecting etc. In the
-    Twisted situation, this is not necessary because Twisted polls the input
-    descriptors itself. Urwid allows this by being driven using the main loop
-    instance's `process_input` method which is triggered on Twisted protocol's
-    standard `dataReceived` method.
+    """An urwid screen that speaks to a Twisted protocol, rather than mucking
+    with stdin and stdout.  Much.
     """
 
     def __init__(self, protocol):
@@ -97,10 +60,9 @@ class TwistedScreen(Screen):
 
     # Urwid Screen API
 
-    # XXX from base screen
+    # XXX untested
     def set_mouse_tracking(self):
-        """
-        Enable mouse tracking.
+        """Enable mouse tracking.
 
         After calling this function get_input will include mouse
         click events along with keystrokes.
@@ -120,6 +82,8 @@ class TwistedScreen(Screen):
 
     # Private
     def _start_gpm_tracking(self):
+        # TODO unclear if any of this is necessary locally
+        # also it doesn't work anyway due to missing imports
         if not os.path.isfile("/usr/bin/mev"):
             return
         if not os.environ.get('TERM',"").lower().startswith("linux"):
@@ -138,10 +102,8 @@ class TwistedScreen(Screen):
 
 
 class UrwidTerminalProtocol(Protocol):
-    """A terminal protocol that knows to proxy input and receive output from
-    Urwid.
-
-    This integrates with the TwistedScreen in a 1:1.
+    """A Protocol that passes input along from a Twisted transport into urwid's
+    main loop.
     """
 
     def __init__(self, bridge_factory):
@@ -210,19 +172,16 @@ class TwistedUrwidBridge(object):
     # Twisted interfacing
 
     def push_input(self, data):
-        """Receive data from Twisted and push it into the urwid main loop.
-
-        We must here:
-
-        1. filter the input data against urwid's input filter.
-        2. Calculate escapes and other clever things using urwid's
-        `escape.process_keyqueue`.
-        3. Pass the calculated keys as a list to the Urwid main loop.
-        4. Redraw the screen
+        """Receive data from Twisted and push it into urwid's main loop.
         """
+        # Emulate urwid's input handling.
+        # Filter the input...
         keys = self.loop.input_filter(data, [])
+        # Let urwid do some crunching to figure out escape sequences...
         keys, remainder = urwid.escape.process_keyqueue(map(ord, keys), True)
+        # Send it along to the main loop...
         self.loop.process_input(keys)
+        # And redraw.
         self.redraw()
 
 

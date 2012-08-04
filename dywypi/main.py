@@ -108,4 +108,7 @@ def make_application():
     application = service.Application("dywypi")
     master_service.setServiceParent(application)
 
+    import dywypi.shell
+    dywypi.shell.initialize_service(application)
+
     return application
