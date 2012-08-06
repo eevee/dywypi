@@ -248,6 +248,13 @@ class DywypiShell(TwistedUrwidBridge):
     """Creates a Twisted-friendly urwid app that allows interacting with dywypi
     via a shell.
     """
+    def __init__(self, *args, **kwargs):
+        self.hub = kwargs.pop('hub')
+        super(DywypiShell, self).__init__(*args, **kwargs)
+
+        # TODO does this need to be a real object?  a real Network instance?
+        self.network = object()
+
     def build_toplevel_widget(self):
         self.pane = UnselectableListBox(urwid.SimpleListWalker([]))
         prompt = FancyEdit('>>> ')
@@ -267,6 +274,8 @@ class DywypiShell(TwistedUrwidBridge):
     def start(self):
         super(DywypiShell, self).start()
 
+        self.hub.network_connected(self.network, self)
+
         from twisted.internet import reactor
         def mm():
             print 'interrupting you'
@@ -281,7 +290,29 @@ class DywypiShell(TwistedUrwidBridge):
 
     def handle_line(self, line):
         """Deal with a line of input."""
-        print line
+        print "really gotta make logging work but you said:", line
+        from twisted.internet import defer
+        # XXX this is here cause it allows exceptions to actually be caught; be more careful with that in general
+        defer.execute(self._handle_line, line)
+
+    def _handle_line(self, line):
+
+        if line.startswith(':'):
+            command_string = line[1:]
+
+            encoding = 'utf8'
+
+            from dywypi.event import Source
+            class wat(object): pass
+            peer = wat()
+            peer.name = None
+            source = Source(self.hub, self.network, None, peer)
+
+            self.hub.run_command_string(source, line.decode(encoding))
+
+    def _send_public_message(self, target, message):
+        # TODO cool color
+        self.add_log_line(message, 'default')
 
 
 class DywypiShellLogObserver(log.FileLogObserver):
@@ -304,8 +335,9 @@ class DywypiShellLogObserver(log.FileLogObserver):
         self.shell_service.add_log_line(line, 'default')
 
 
-def initialize_service(application):
-    service = LocalUrwidService(DywypiShell)
+def initialize_service(application, hub):
+    from functools import partial
+    service = LocalUrwidService(partial(DywypiShell, hub=hub))
     service.setServiceParent(application)
 
     application.setComponent(log.ILogObserver, DywypiShellLogObserver(service).emit)

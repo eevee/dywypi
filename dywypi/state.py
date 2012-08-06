@@ -29,18 +29,6 @@ class Network(object):
 
         return self._channels[channel_name]
 
-    def find_peer(self, userhost):
-        if '!' in userhost:
-            name, usermask = userhost.split('!', 1)
-            ident, host = usermask.split('@', 1)
-            # TODO may need a cache dict
-            return User(self, name, ident, host)
-        else:
-            self.client = network.find_server(userhost)
-            return User(self, name, ident, host)
-
-        if not channel.startswith('#'):
-            channel = None
 
 
     @property
@@ -73,12 +61,13 @@ class PeerServer(Peer): pass
 class User(Peer):
     is_server = False
 
-    def __init__(self, network, nick, ident, host):
+    def __init__(self, network, name, ident, host):
         self._network = weakref.ref(network)
-        self.nick = nick
+        self.name = name
         self.ident = ident
         self.host = host
 
 
 class TwistedProxy(object):
     pass
+

@@ -5,14 +5,30 @@ from twisted.internet import protocol
 from twisted.internet.ssl import ClientContextFactory
 from twisted.words.protocols import irc
 
+from dywypi.event import Source
 from dywypi.event import CommandEvent, PublicMessageEvent
 
 nickname = 'dywypi2_0'
 encoding = 'utf8'
 
+
 # XXX REALLY REALLY NEED FIRST-CLASS VERSIONS OF SERVERS, CHANNELS, AND CONTEXT
 class DywypiProtocol(irc.IRCClient):
     nickname = nickname
+
+    ### Bookkeeping
+
+    def connectionMade(self):
+        irc.IRCClient.connectionMade(self)
+
+        self.hub.network_connected(self.irc_network, self)
+
+    def connectionLost(self, *args, **kwargs):
+        self.hub.network_disconnected(self.irc_network)
+
+        irc.IRCClient.connectionLost(*args, **kwargs)
+
+    ### Properties
 
     @property
     def irc_network(self):
@@ -21,6 +37,32 @@ class DywypiProtocol(irc.IRCClient):
     @property
     def hub(self):
         return self.factory.hub
+
+
+    def parse_source(self, userhost, channel_name):
+        from dywypi.state import User
+
+        if '!' in userhost:
+            name, usermask = userhost.split('!', 1)
+            ident, host = usermask.split('@', 1)
+            # TODO may need a cache dict
+            user = User(self, name, ident, host)
+        else:
+            self.client = network.find_server(userhost)
+            user = User(self, name, ident, host)
+
+        if channel_name and channel_name[0] in '#&+':
+            channel = self.irc_network.find_channel(channel_name)
+        else:
+            channel = None
+
+        return Source(
+            hub=self.hub,
+            network=self.irc_network,
+            channel=channel,
+            peer=user,
+        )
+
 
 
     ### EVENT HANDLERS
@@ -33,25 +75,22 @@ class DywypiProtocol(irc.IRCClient):
         self.irc_network.find_channel(channel_name).joined = True
 
     def privmsg(self, raw_user, channel_name, msg):
-        peer = self.irc_network.find_peer(raw_user)
+        source = self.parse_source(raw_user, channel_name)
 
-        if peer.is_server:
-            return
+        #if peer.is_server:
+        #    return
 
-        if channel_name[0] in '#&+':
-            channel = self.irc_network.find_channel(channel_name)
-
+        if source.channel:
             # In a channel, only direct addressing is a command
             if not msg.startswith(self.nickname + ': '):
                 self.hub.fire(PublicMessageEvent(
-                    peer, channel, self,
-                    command=None, argv=None,
-                    message=msg))
+                    source, message=msg))
                 return
 
             command_string = msg[len(self.nickname) + 2:]
         else:
             # In a private message, everything is aimed at us
+            # TODO private message event
             channel = None
             command_string = msg
 
@@ -60,14 +99,17 @@ class DywypiProtocol(irc.IRCClient):
         command = tokens.pop(0)
 
         event = CommandEvent(
-            peer, channel, self,
+            source,
             command=command, argv=tokens)
 
         # XXX this will become 'respond to an event' I guess.  needs a concept
         # of an event.  right now we have "string of words is directed at bot"
-        self.hub.run_command(command, event)
+        self.hub.run_command_string(source, command_string.decode(encoding))
 
     ### INTERNAL METHODS
+
+    def _send_public_message(self, target, message):
+        self.msg(target, message)
 
     def _decode(self, s):
         """Returns `s`, cleverly decoded into a unicode object."""

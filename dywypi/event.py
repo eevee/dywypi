@@ -12,34 +12,68 @@ def listen(event_cls):
     return _plugin_hook_decorator(dict(event_type=event_cls))
 
 
-class Event(object):
-    def __init__(self, peer, channel, _protocol, command, argv):
-        # TODO need to look up protocol in case there's a reconnect
-        self.peer = peer
-        self.channel = channel
-        self._protocol = _protocol
 
-        self.command = command
-        self.argv = argv
+# XXX move me to state?  unclear
+class Source(object):
+    """Source of an event..."""
+
+    def __init__(self, hub, network, channel, peer):
+        self.hub = hub
+        self.network = network
+        self.channel = channel
+        self.peer = peer
+
+    def find_protocol(self):
+        # TODO make me a deferred so i work even when disconnected
+        return self.hub.protocol_for_network(self.network)
 
     def reply(self, *messages):
-        """Reply to the source of the event."""
-        # XXX not every event has a source
-        # XXX oughta require unicode, or cast, or somethin
+        protocol = self.find_protocol()
+        # XXX not even event may have a source i think
+        # XXX e.g., what does replying to a system message like PING mean?
 
         if self.channel:
-            prefix = self.peer.nick + ': '
+            prefix = self.peer.name + ': '
             target = self.channel.name
         else:
             prefix = ''
-            target = self.peer.nick
+            target = self.peer.name
 
         for message in messages:
             # XXX
             message = message.encode('utf8')
-            self._protocol.msg(target, prefix + message)
 
-class CommandEvent(Event): pass
+            protocol._send_public_message(target, prefix + message)
+
+
+
+
+
+
+class Event(object):
+    def __init__(self, source):
+        self.source = source
+        # ok so an event OR command may be fired:
+        # - on a network
+        # - [optionally] in a channel
+        # - by a peer
+        # OR...
+        # - from the shell.
+        # OR...
+        # - from the web interface.
+        # OR...
+        # - via jabber or something.
+        # TODO need to look up protocol in case there's a reconnect
+
+    def reply(self, *messages):
+        """Reply to the source of the event."""
+        self.source.reply(*messages)
+
+class CommandEvent(Event):
+    def __init__(self, source, command, argv):
+        super(CommandEvent, self).__init__(source)
+        self.command = command
+        self.argv = argv
 
 class MessageEvent(Event):
     def __init__(self, *args, **kwargs):

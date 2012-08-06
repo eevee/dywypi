@@ -11,6 +11,6 @@ def make_application():
     dywypi.dialect.irc.initialize_service(application, hub)
 
     import dywypi.dialect.shell
-    dywypi.dialect.shell.initialize_service(application)
+    dywypi.dialect.shell.initialize_service(application, hub)
 
     return application
