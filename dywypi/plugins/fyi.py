@@ -8,6 +8,7 @@ import urllib
 from twisted.internet.defer import inlineCallbacks, returnValue
 from twisted.web.client import getPage
 
+from dywypi.event import PublicMessageEvent, listen
 from dywypi.plugin_api import Plugin, command, global_command
 
 unicode_categories = dict(
@@ -101,3 +102,20 @@ class FYIPlugin(Plugin):
         # With 'Z' (raw) mode, the output is guaranteed to always be UTF-8
         lines = m.group(1).decode('utf8').strip().splitlines()
         event.reply(lines[0])
+
+    @listen(PublicMessageEvent)
+    @inlineCallbacks
+    def web_youtube(self, event):
+        import re
+        import lxml.etree
+        for video_id in re.findall(r'https?://www.youtube.com/watch[?]v=(.+?)\b', event.message):
+            # TODO this will do them in order instead of in parallel
+            response = yield getPage(b"http://gdata.youtube.com/feeds/api/videos/{0}?v=2&fields=title".format(video_id))
+            data = lxml.etree.fromstring(response)
+            ns = dict(atom='http://www.w3.org/2005/Atom')
+            titles = data.xpath('/atom:entry/atom:title', namespaces=ns)
+            if len(titles) == 1:
+                event.reply(titles[0].text)
+            else:
+                # XXX uhh yeah
+                raise RuntimeError
