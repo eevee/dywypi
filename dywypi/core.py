@@ -3,8 +3,8 @@ import shlex
 from twisted.internet import defer
 from twisted.python import log
 
+from dywypi.event import CommandEvent
 from dywypi.plugin_api import PluginRegistry
-from dywypi.state import CommandEvent
 
 nickname = 'dywypi2_0'
 encoding = 'utf8'
