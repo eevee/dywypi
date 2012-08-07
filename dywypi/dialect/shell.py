@@ -176,11 +176,15 @@ class TwistedUrwidBridge(object):
         """
         # Emulate urwid's input handling.
         # Filter the input...
-        keys = self.loop.input_filter(data, [])
+        filtered_data = self.loop.input_filter(data, [])
         # Let urwid do some crunching to figure out escape sequences...
-        keys, remainder = urwid.escape.process_keyqueue(map(ord, keys), True)
+        codes = map(ord, filtered_data)
+        processed_keys = []
+        while codes:
+            keys, codes = urwid.escape.process_keyqueue(codes, True)
+            processed_keys.extend(keys)
         # Send it along to the main loop...
-        self.loop.process_input(keys)
+        self.loop.process_input(processed_keys)
         # And redraw.
         self.redraw()
 
