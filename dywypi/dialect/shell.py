@@ -280,12 +280,6 @@ class DywypiShell(TwistedUrwidBridge):
 
         self.hub.network_connected(self.network, self)
 
-        from twisted.internet import reactor
-        def mm():
-            print 'interrupting you'
-            reactor.callLater(2, mm)
-        reactor.callLater(2, mm)
-
     def add_log_line(self, line, color):
         # TODO generalize this color thing in a way compatible with irc, html, ...
         self.pane.body.append(urwid.Text((color, line.rstrip())))
