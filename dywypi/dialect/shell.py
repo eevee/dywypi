@@ -134,7 +134,6 @@ class TwistedUrwidBridge(object):
         self.terminal_protocol = terminal_protocol
 
         self.widget = self.build_toplevel_widget()
-        #self.palette = self.create_urwid_palette()
 
         self.screen = TwistedScreen(self.terminal_protocol)
         self.loop = urwid.MainLoop(
@@ -142,7 +141,7 @@ class TwistedUrwidBridge(object):
             screen=self.screen,
             event_loop=urwid.TwistedEventLoop(manage_reactor=False),
             unhandled_input=self.unhandled_input,
-            palette=None,
+            palette=self.build_palette(),
         )
 
     def redraw(self):
@@ -152,6 +151,10 @@ class TwistedUrwidBridge(object):
 
     def build_toplevel_widget(self):
         """Returns the urwid widget to use as the top-level display."""
+        raise NotImplementedError
+
+    def build_palette(self):
+        """Returns an Urwid palette to use."""
         raise NotImplementedError
 
     def unhandled_input(self, input):
@@ -272,6 +275,11 @@ class DywypiShell(TwistedUrwidBridge):
             focus_item=prompt,
         )
 
+    def build_palette(self):
+        return [
+            ('logging-general', 'dark gray', 'default'),
+        ]
+
     def unhandled_input(self, key):
         print key
 
@@ -280,7 +288,7 @@ class DywypiShell(TwistedUrwidBridge):
 
         self.hub.network_connected(self.network, self)
 
-    def add_log_line(self, line, color):
+    def add_log_line(self, line, color='default'):
         # TODO generalize this color thing in a way compatible with irc, html, ...
         self.pane.body.append(urwid.Text((color, line.rstrip())))
         self.pane.set_focus(len(self.pane.body) - 1)
@@ -288,13 +296,14 @@ class DywypiShell(TwistedUrwidBridge):
 
     def handle_line(self, line):
         """Deal with a line of input."""
-        print "really gotta make logging work but you said:", line
+        # TODO this should be part of debug output in the irc shell, too, and
+        # not baked in here
+        log.msg("received: " + repr(line))
         from twisted.internet import defer
         # XXX this is here cause it allows exceptions to actually be caught; be more careful with that in general
         defer.execute(self._handle_line, line)
 
     def _handle_line(self, line):
-
         if line.startswith(':'):
             command_string = line[1:]
 
@@ -306,11 +315,11 @@ class DywypiShell(TwistedUrwidBridge):
             peer.name = None
             source = Source(self.hub, self.network, None, peer)
 
-            self.hub.run_command_string(source, line.decode(encoding))
+            self.hub.run_command_string(source, command_string.decode(encoding))
 
     def _send_public_message(self, target, message):
         # TODO cool color
-        self.add_log_line(message, 'default')
+        self.add_log_line(message)
 
 
 class DywypiShellLogObserver(log.FileLogObserver):
@@ -330,7 +339,10 @@ class DywypiShellLogObserver(log.FileLogObserver):
             text=text.replace('\n', '\n\t'),
         )
 
-        self.shell_service.add_log_line(line, 'default')
+        # TODO could color based on the "system"? or level or whatever
+        self.shell_service.add_log_line(line, 'logging-general')
+
+        self.shell_service.add_log_line(repr(event))
 
 
 def initialize_service(application, hub):
