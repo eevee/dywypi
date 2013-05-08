@@ -1,4 +1,6 @@
 """Provides the base class for plugins and dywypi's access to them."""
+
+import functools
 import pkgutil
 
 from twisted.python import log
@@ -45,43 +47,73 @@ class PluginRegistrationError(Exception): pass
 # - handle errors more nicely
 # - I guess make command() work without parens, too, or just require the name
 
-def _plugin_hook_decorator(listen_spec):
-    # All this really does is stash the arguments away until PluginMeta, below,
-    # catches them and moves them to a class in the list.
-    def decorator(func):
-        if not hasattr(func, '_plugin_listeners'):
-            func._plugin_listeners = []
+class PluginHook(object):
+    def wrap(self, method):
+        self.method = method
+        return self
 
-        listen_spec['func_name'] = func.__name__
-        func._plugin_listeners.append(listen_spec)
+    def __get__(self, instance, owner):
+        """Replicate the usual method invocation magic."""
+        if instance is None:
+            return self
 
-        return func
+        return functools.partial(self, instance)
 
-    return decorator
+    def __call__(self, *args, **kwargs):
+        return self.method(*args, **kwargs)
 
-def command(name=None, doc=None):
+
+class PluginCommand(PluginHook):
+    def __init__(self, name, doc, is_global):
+        self.name = name
+        self.doc = doc
+        self.is_global = is_global
+
+    def register(self, plugin, registry):
+        if self.is_global:
+            fqn = self.name
+        else:
+            fqn = plugin.name + '.' + self.name
+
+        log.msg(u"...adding command {0!r}".format(fqn))
+
+        # TODO this should probably be a method
+        if fqn in registry.commands:
+            raise PluginRegistrationError(
+                """Can't have two commands named {0}""".format(fqn))
+
+        registry.commands[fqn] = plugin, self
+
+
+def command(name, doc=None):
     """Decorator that marks a plugin function as a command.  May be stacked to
     give a command several aliases.
 
-    `name` is the name that triggers the command, defaulting to the name of the
-    function.  `doc` is a help string provided to users; it defaults to the
-    function's docstring.
+    `name` is the name that triggers the command.  `doc` is a help string
+    provided to users; it defaults to the function's docstring.
     """
-    return _plugin_hook_decorator(dict(
-        event_type='local_command', name=name, doc=doc, is_global=False))
+    return PluginCommand(name, doc, is_global=False).wrap
 
 def global_command(name, doc=None):
     """Similar to `command()`, but the function can be called without the
-    plugin prefix.  The name is required, in the vain hope that plugin
-    developers will think more carefully about cluttering the global namespace.
+    plugin prefix.  Use with discretion; this is a shared namespace.
     """
-    return _plugin_hook_decorator(dict(
-        event_type='global_command', name=name, doc=doc, is_global=True))
+    return PluginCommand(name, doc, is_global=True).wrap
 
-def handler(event_type):
-    pass
 
-# TODO: make a @listen thing.  commands can't be general events though because we need to know that exactly one thing corresponds to a command OR we throw an error at eithe rload or runtime
+class PluginListener(PluginHook):
+    def __init__(self, event_cls):
+        if not issubclass(event_cls, Event):
+            raise TypeError("Can only listen to Event subclasses")
+
+        self.event_cls = event_cls
+
+    def register(self, plugin, registry):
+        log.msg(u"...listening for {0!r}".format(self.event_cls))
+        registry.listeners.setdefault(self.event_cls, []).append(self)
+
+def listen(event_cls):
+    return PluginListener(event_cls).wrap
 
 
 ### Plugin class implementation
@@ -105,13 +137,11 @@ class PluginMeta(type):
 
         # Amass all the event listeners in this plugin; they've been decorated
         # with an appropriate attribute
-        cls._plugin_listeners = []
-        for attr_name, attr in attrs.iteritems():
-            try:
-                cls._plugin_listeners.extend(attr._plugin_listeners)
-                del attr._plugin_listeners
-            except AttributeError:
-                pass
+        cls._plugin_hooks = []
+        for key, attr in attrs.iteritems():
+            while isinstance(attr, PluginHook):
+                cls._plugin_hooks.append(attr)
+                attr = attr.method
 
 
 class Plugin(object):
@@ -128,12 +158,6 @@ class Plugin(object):
 
 
 ### Plugin command registry; loading, unloading, dispatching
-
-class PluginCommand(object):
-    def __init__(self, name, doc, command):
-        self.name = name
-        self.doc = doc
-        self.command = command
 
 class PluginRegistry(object):
     """Manages plugins, their states, and finding/executing commands.
@@ -160,7 +184,7 @@ class PluginRegistry(object):
         log.msg('Scanning for plugin modules')
         import dywypi.plugins
         for loader, name, is_pkg in pkgutil.iter_modules(dywypi.plugins.__path__, prefix='dywypi.plugins.'):
-            log.msg('...found ' + name)
+            log.msg(u"...found {0!r}".format(name))
             __import__(name)
 
     def load_plugin(self, plugin_name):
@@ -169,42 +193,14 @@ class PluginRegistry(object):
             # TODO or bomb, or indicate something idk.
             return
 
+        log.msg(u"Loading plugin {0!r}".format(plugin_name))
         plugin_obj = self.plugin_classes[plugin_name]()
         self.plugins[plugin_name] = plugin_obj
 
         # Collect event listeners
         # TODO 'doc' here doesn't make any sense for general listeners
-        for listen_spec in plugin_obj._plugin_listeners:
-            method = getattr(plugin_obj, listen_spec['func_name'])
-
-            # Commands are a little different, as they're aimed directly at a
-            # particular plugin
-            if listen_spec['event_type'] in ('local_command', 'global_command'):
-                if listen_spec['event_type'] == 'global_command':
-                    fqn = listen_spec['name']
-                else:
-                    fqn = '.'.join((plugin_name, listen_spec['name']))
-
-                if fqn in self.commands:
-                    raise PluginRegistrationError(
-                        """Can't have two commands named {0}""".format(fqn))
-
-                # XXX what should this init look like?  what does a command
-                # need to know?  docs, usage...?
-                # TODO plugin_command should probably just be callable
-                self.commands[fqn] = PluginCommand(
-                    name=fqn,
-                    doc=listen_spec['doc'],
-                    command=method,
-                )
-
-            else:
-                if not issubclass(listen_spec['event_type'], Event):
-                    raise TypeError("Can only listen to Event subclasses")
-
-                # TODO generic event support etc
-                self.listeners.setdefault(listen_spec['event_type'], []).append(method)
-
+        for hook in plugin_obj._plugin_hooks:
+            hook.register(plugin_obj, self)
 
 
     def unload_plugin(self, plugin_name):
@@ -214,13 +210,13 @@ class PluginRegistry(object):
         raise NotImplementedError
 
 
-    def run_command(self, command_name, args):
+    def run_command(self, command_name, event):
         """..."""
         # XXX more vague planning ahead: should responses be generators?
         # should we pass a writer object or reply callable?  how does the thing
         # communicate back????
-        plugin_command = self.commands[command_name]
-        response = plugin_command.command(args)
+        plugin, plugin_command = self.commands[command_name]
+        response = plugin_command(plugin, event)
 
         # TODO check for unicodes maybe.
         return response

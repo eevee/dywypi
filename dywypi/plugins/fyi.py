@@ -8,8 +8,8 @@ import urllib
 from twisted.internet.defer import inlineCallbacks, returnValue
 from twisted.web.client import getPage
 
-from dywypi.event import PublicMessageEvent, listen
-from dywypi.plugin_api import Plugin, command, global_command
+from dywypi.event import PublicMessageEvent
+from dywypi.plugin_api import Plugin, command, global_command, listen
 
 unicode_categories = dict(
     Cc='Other, Control',
