@@ -1,9 +1,11 @@
 from twisted.application import service
+from twisted.internet import reactor
 
 from dywypi.core import Dywypi
 
 def make_application():
     hub = Dywypi()
+    reactor.callWhenRunning(hub.scan_for_plugins)
 
     application = service.Application("dywypi")
 

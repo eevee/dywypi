@@ -25,13 +25,16 @@ class Dywypi(object):
 
     def __init__(self):
         self.plugin_registry = PluginRegistry()
+
+        self.network_protocols = {}
+        self.network_deferreds = {}
+
+    def scan_for_plugins(self):
         self.plugin_registry.scan()
         self.plugin_registry.load_plugin('echo')
         self.plugin_registry.load_plugin('fyi')
         self.plugin_registry.load_plugin('pagetitles')
-
-        self.network_protocols = {}
-        self.network_deferreds = {}
+        self.plugin_registry.load_plugin('uno')
 
     def network_connected(self, network, protocol):
         if network in self.network_protocols:
