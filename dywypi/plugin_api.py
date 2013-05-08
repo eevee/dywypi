@@ -226,6 +226,7 @@ class PluginRegistry(object):
             if cls is Event:
                 break
 
+            # TODO don't yield the same guy twice
             for func in self.listeners.get(cls, []):
                 yield func
 

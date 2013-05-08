@@ -80,6 +80,8 @@ class DywypiProtocol(irc.IRCClient):
         #if peer.is_server:
         #    return
 
+        # TODO we need pub/priv message events both that do and do NOT fire
+        # when the message is also a command
         if source.channel:
             # In a channel, only direct addressing is a command
             if not msg.startswith(self.nickname + ': '):
@@ -97,10 +99,6 @@ class DywypiProtocol(irc.IRCClient):
         # Split the command into words, using shell-ish syntax
         tokens = [token.decode(encoding) for token in shlex.split(command_string)]
         command = tokens.pop(0)
-
-        event = CommandEvent(
-            source,
-            command=command, argv=tokens)
 
         # XXX this will become 'respond to an event' I guess.  needs a concept
         # of an event.  right now we have "string of words is directed at bot"

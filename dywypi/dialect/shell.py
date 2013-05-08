@@ -277,6 +277,7 @@ class DywypiShell(TwistedUrwidBridge):
 
     def build_palette(self):
         return [
+            ('default', 'default', 'default'),
             ('logging-general', 'dark gray', 'default'),
         ]
 
@@ -290,8 +291,10 @@ class DywypiShell(TwistedUrwidBridge):
 
     def add_log_line(self, line, color='default'):
         # TODO generalize this color thing in a way compatible with irc, html, ...
+        # TODO i super duper want this for logging, showing incoming/outgoing
+        # messages in the right colors, etc!!
         self.pane.body.append(urwid.Text((color, line.rstrip())))
-        self.pane.set_focus(len(self.pane.body) - 1)
+        self.pane.set_focus(len(self.pane.body))
         self.redraw()
 
     def handle_line(self, line):
@@ -331,18 +334,14 @@ class DywypiShellLogObserver(log.FileLogObserver):
         if text is None:
             return
 
-        # TODO pick color...
-
         line = "{time} [{system}] {text}\n".format(
             time=self.formatTime(event['time']),
             system=event['system'],
             text=text.replace('\n', '\n\t'),
         )
 
-        # TODO could color based on the "system"? or level or whatever
+        # TODO could color based on the "system"? or isError?
         self.shell_service.add_log_line(line, 'logging-general')
-
-        self.shell_service.add_log_line(repr(event))
 
 
 def initialize_service(application, hub):
