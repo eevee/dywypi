@@ -278,7 +278,7 @@ class DywypiShell(TwistedUrwidBridge):
     def build_palette(self):
         return [
             ('default', 'default', 'default'),
-            ('logging-general', 'dark gray', 'default'),
+            ('logging-general', 'light gray', 'default'),
         ]
 
     def unhandled_input(self, key):

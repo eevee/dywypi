@@ -42,14 +42,28 @@ class DywypiProtocol(irc.IRCClient):
     def parse_source(self, userhost, channel_name):
         from dywypi.state import User
 
-        if '!' in userhost:
-            name, usermask = userhost.split('!', 1)
-            ident, host = usermask.split('@', 1)
-            # TODO may need a cache dict
-            user = User(self, name, ident, host)
-        else:
-            self.client = network.find_server(userhost)
-            user = User(self, name, ident, host)
+        # TODO this should live on the Network, really, but the parsing is
+        # IRC-specific.  maybe break it into pieces and pass the pieces as the
+        # key?  (whoops lol the User contains the protocol rather than the
+        # network anyway so it's not like this stuff is very agnostic)
+        # TODO what about:
+        # - nickname changes
+        # - disconnects (and parts, if from the last channel i know about)
+        # - when *i* disconnect
+        # (how about for now we assume none of these will happen, BUT plz fix
+        # soon omg)
+        if userhost not in self.irc_network._peers:
+            if '!' in userhost:
+                name, usermask = userhost.split('!', 1)
+                ident, host = usermask.split('@', 1)
+                user = User(self, name, ident, host)
+            else:
+                self.client = network.find_server(userhost)
+                user = User(self, name, ident, host)
+
+            self.irc_network._peers[userhost] = user
+
+        user = self.irc_network._peers[userhost]
 
         if channel_name and channel_name[0] in '#&+':
             channel = self.irc_network.find_channel(channel_name)

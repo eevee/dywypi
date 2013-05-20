@@ -13,6 +13,7 @@ class Network(object):
 
     def __init__(self):
         self._channels = {}
+        self._peers = {}
 
         # TODO This comes from configuration
         self.servers = [

@@ -33,6 +33,20 @@ class Source(object):
 
             protocol._send_public_message(target, prefix + message)
 
+    def say(self, *messages):
+        protocol = self.find_protocol()
+
+        if self.channel:
+            target = self.channel.name
+        else:
+            target = self.peer.name
+
+        for message in messages:
+            # XXX belongs to the protocol imo
+            message = message.encode('utf8')
+            protocol._send_public_message(target, message)
+
+
 
 
 
@@ -40,6 +54,8 @@ class Source(object):
 
 class Event(object):
     def __init__(self, source):
+        # TODO i don't think "source" is useful if it's only ever used as a
+        # property of this
         self.source = source
         # ok so an event OR command may be fired:
         # - on a network
@@ -53,9 +69,29 @@ class Event(object):
         # - via jabber or something.
         # TODO need to look up protocol in case there's a reconnect
 
+    @property
+    def peer(self):
+        return self.source.peer
+
+    @property
+    def channel(self):
+        return self.source.channel
+
+    # TODO these need to operate on a dialect-specific thing.  can i get from a
+    # network/protocol to such an implementation?
+
     def reply(self, *messages):
         """Reply to the source of the event."""
+        # TODO this may not always make sense...
         self.source.reply(*messages)
+
+    def say(self, *messages):
+        """Say something wherever the event occurred."""
+        self.source.say(*messages)
+
+
+    # TODO there also need to be dialect-specific IRC-like operations attached
+    # here!
 
 class CommandEvent(Event):
     def __init__(self, source, command, argv):
