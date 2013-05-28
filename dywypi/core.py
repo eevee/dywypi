@@ -51,18 +51,21 @@ class Dywypi(object):
 
     ### Event stuff
 
-    def fire(self, event, *a, **kw):
+    def fire(self, event_cls, *a, **kw):
+        event = event_cls(self, *a, **kw)
         for func in self.plugin_registry.get_listeners(event):
-            self._make_deferred(func, event, *a, **kw)
+            self._make_deferred(func, event)
 
 
+    # TODO not a particularly huge fan of this name, or how this works -- where
+    # would e.g. redirection go?
     def run_command_string(self, source, command_string):
         # shlex doesn't support unicode before 2.7.3, so do the bytes dance
         command_string = command_string.encode('utf8')
         tokens = [token.decode('utf8') for token in shlex.split(command_string)]
         command = tokens.pop(0)
 
-        event = CommandEvent(source, command=command, argv=tokens)
+        event = CommandEvent(self, source, command=command, argv=tokens)
 
         self._make_deferred(self.plugin_registry.run_command, command, event)
 

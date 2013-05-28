@@ -312,11 +312,11 @@ class DywypiShell(TwistedUrwidBridge):
 
             encoding = 'utf8'
 
-            from dywypi.event import Source
+            from dywypi.event import EventSource
             class wat(object): pass
             peer = wat()
             peer.name = None
-            source = Source(self.hub, self.network, None, peer)
+            source = EventSource(self.network, peer, None)
 
             self.hub.run_command_string(source, command_string.decode(encoding))
 
