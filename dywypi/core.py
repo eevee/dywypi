@@ -1,3 +1,4 @@
+import logging
 import shlex
 
 from twisted.internet import defer
@@ -51,8 +52,11 @@ class Dywypi(object):
 
     ### Event stuff
 
-    def fire(self, event_cls, *a, **kw):
-        event = event_cls(self, *a, **kw)
+    def fire(self, event_cls, source, *a, **kw):
+        log.msg("{0}: Firing event {1} with {2!r} {3!r}".format(
+                source, event_cls.__name__, a, kw),
+            level=logging.DEBUG)
+        event = event_cls(self, source, *a, **kw)
         for func in self.plugin_registry.get_listeners(event):
             self._make_deferred(func, event)
 

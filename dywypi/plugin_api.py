@@ -110,7 +110,7 @@ class PluginListener(PluginHook):
 
     def register(self, plugin, registry):
         log.msg(u"...listening for {0!r}".format(self.event_cls))
-        registry.listeners.setdefault(self.event_cls, []).append(self)
+        registry.listeners.setdefault(self.event_cls, []).append((plugin, self))
 
 def listen(event_cls):
     return PluginListener(event_cls).wrap
@@ -227,8 +227,8 @@ class PluginRegistry(object):
                 break
 
             # TODO don't yield the same guy twice
-            for func in self.listeners.get(cls, []):
-                yield func
+            for plugin, hook in self.listeners.get(cls, []):
+                yield functools.partial(hook, plugin)
 
     # TODO make these less of an exception
     #def core_scan()...

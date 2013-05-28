@@ -6,4 +6,4 @@ class PageTitlesPlugin(Plugin):
 
     @listen(PublicMessageEvent)
     def scan_for_urls(self, event):
-        print event.argv
+        print event.message

@@ -1,6 +1,3 @@
-nickname = 'dywypi2_0'
-encoding = 'utf8'
-
 from collections import namedtuple
 
 """Covenience container for the 'source' of an event -- who fired it and

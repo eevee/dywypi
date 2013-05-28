@@ -7,6 +7,7 @@ interesting things.
 # - https://code.launchpad.net/~habnabit/+junk/urwid-protocol
 # - https://bitbucket.org/aafshar/txurwid-main/src
 
+import logging
 import os
 
 from twisted.application import service
@@ -278,7 +279,11 @@ class DywypiShell(TwistedUrwidBridge):
     def build_palette(self):
         return [
             ('default', 'default', 'default'),
-            ('logging-general', 'light gray', 'default'),
+            ('logging-debug', 'dark green', 'default'),
+            ('logging-info', 'light gray', 'default'),
+            ('logging-warning', 'light red', 'default'),
+            ('logging-error', 'dark red', 'default'),
+            ('logging-critical', 'light magenta', 'default'),
         ]
 
     def unhandled_input(self, key):
@@ -325,6 +330,13 @@ class DywypiShell(TwistedUrwidBridge):
         self.add_log_line(message)
 
 
+LOG_LEVEL_COLORS = {
+    logging.DEBUG: 'logging-debug',
+    logging.INFO: 'logging-info',
+    logging.WARNING: 'logging-warning',
+    logging.ERROR: 'logging-error',
+    logging.CRITICAL: 'logging-critical',
+}
 class DywypiShellLogObserver(log.FileLogObserver):
     def __init__(self, shell_service):
         self.shell_service = shell_service
@@ -334,14 +346,26 @@ class DywypiShellLogObserver(log.FileLogObserver):
         if text is None:
             return
 
+        if event['isError']:
+            level = logging.ERROR
+        elif 'level' in event:
+            level = event['level']
+        else:
+            level = logging.INFO
+
+        # Format
         line = "{time} [{system}] {text}\n".format(
             time=self.formatTime(event['time']),
             system=event['system'],
             text=text.replace('\n', '\n\t'),
         )
 
-        # TODO could color based on the "system"? or isError?
-        self.shell_service.add_log_line(line, 'logging-general')
+        # Print to the terminal
+        try:
+            color = LOG_LEVEL_COLORS[level]
+        except KeyError:
+            color = LOG_LEVEL_COLORS[logging.INFO]
+        self.shell_service.add_log_line(line, color)
 
 
 def initialize_service(application, hub):
