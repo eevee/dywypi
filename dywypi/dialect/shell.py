@@ -325,7 +325,7 @@ class DywypiShell(TwistedUrwidBridge):
 
             self.hub.run_command_string(source, command_string.decode(encoding))
 
-    def _send_public_message(self, target, message):
+    def _send_message(self, target, message, as_notice=True):
         # TODO cool color
         self.add_log_line(message)
 

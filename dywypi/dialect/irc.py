@@ -111,8 +111,11 @@ class DywypiProtocol(irc.IRCClient):
 
     ### INTERNAL METHODS
 
-    def _send_public_message(self, target, message):
-        self.msg(target, message)
+    def _send_message(self, target, message, as_notice=True):
+        if as_notice:
+            self.notice(target.name, message)
+        else:
+            self.msg(target.name, message)
 
     def _decode(self, s):
         """Returns `s`, cleverly decoded into a unicode object."""

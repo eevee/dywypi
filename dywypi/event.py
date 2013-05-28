@@ -42,30 +42,33 @@ class Event(object):
 
         if self.channel:
             prefix = self.peer.name + ': '
-            target = self.channel.name
+            target = self.channel
         else:
             prefix = ''
-            target = self.peer.name
+            target = self.peer
 
         for message in messages:
             # XXX
             message = message.encode('utf8')
-
-            protocol._send_public_message(target, prefix + message)
+            protocol._send_message(target, prefix + message, as_notice=False)
 
     def say(self, *messages):
         """Say something wherever the event occurred."""
         protocol = self.find_protocol()
 
         if self.channel:
-            target = self.channel.name
+            target = self.channel
         else:
-            target = self.peer.name
+            target = self.peer
 
         for message in messages:
             # XXX belongs to the protocol imo
             message = message.encode('utf8')
-            protocol._send_public_message(target, message)
+            protocol._send_message(target, message, as_notice=False)
+
+    def send_message(self, target, message, as_notice=True):
+        protocol = self.find_protocol()
+        protocol._send_message(target, message, as_notice=as_notice)
 
     # TODO there also need to be dialect-specific IRC-like operations attached
     # here!
