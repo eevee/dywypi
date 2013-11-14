@@ -4,7 +4,8 @@ import re
 
 
 class IRCClientProtocol(asyncio.Protocol):
-    def __init__(self, loop, password, charset='utf8'):
+    def __init__(self, loop, nick_prefix, password, charset='utf8'):
+        self.nick_prefix = nick_prefix
         self.password = password
         self.charset = charset
 
@@ -18,7 +19,7 @@ class IRCClientProtocol(asyncio.Protocol):
 
         # TODO maybe stick this bit in a coroutine?
         self.send_message('PASS', self.password)
-        self.send_message('NICK', 'dywypi-eevee')
+        self.send_message('NICK', 'dywypi-%s' % self.nick_prefix)
         self.send_message('USER', 'dywypi', '-', '-', 'dywypi Python IRC bot')
 
     def data_received(self, data):
@@ -32,7 +33,7 @@ class IRCClientProtocol(asyncio.Protocol):
 
             # TODO valerr
             message = Message.parse(raw_message.decode(self.charset))
-            print("recv:", repr(message))
+            # print("recv:", repr(message))
             self.handle_message(message)
 
     def handle_message(self, message):
@@ -46,7 +47,7 @@ class IRCClientProtocol(asyncio.Protocol):
 
     def send_message(self, command, *args):
         message = Message(command, *args)
-        print("sent:", repr(message))
+        # print("sent:", repr(message))
         self.transport.write(message.render().encode(self.charset) + b'\r\n')
 
     @asyncio.coroutine
@@ -55,16 +56,17 @@ class IRCClientProtocol(asyncio.Protocol):
 
 
 class IRCClient:
-    def __init__(self, host, port, *, ssl, password=None):
+    def __init__(self, host, port, nick_prefix, *, ssl, password=None):
         self.host = host
         self.port = port
+        self.nick_prefix = nick_prefix
         self.ssl = ssl
         self.password = password
 
     @asyncio.coroutine
     def connect(self, loop):
         _, self.proto = yield from loop.create_connection(
-            lambda: IRCClientProtocol(loop, password=self.password),
+            lambda: IRCClientProtocol(loop, self.nick_prefix, password=self.password),
             self.host, self.port, ssl=self.ssl)
 
         return self
@@ -73,6 +75,9 @@ class IRCClient:
     def read_message(self):
         return (yield from self.proto.read_message())
 
+    @asyncio.coroutine
+    def send_message(self, command, *args):
+        self.proto.send_message(command, *args)
 
 class Message:
     def __init__(self, command, *args, prefix=None):
