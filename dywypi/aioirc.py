@@ -34,7 +34,7 @@ class IRCClientProtocol(asyncio.Protocol):
                 return
 
             # TODO valerr
-            message = Message.parse(raw_message.decode(self.charset))
+            message = IRCMessage.parse(raw_message.decode(self.charset))
             logger.debug("recv: %r", message)
             self.handle_message(message)
 
@@ -48,7 +48,7 @@ class IRCClientProtocol(asyncio.Protocol):
         self.message_queue.put_nowait(message)
 
     def send_message(self, command, *args):
-        message = Message(command, *args)
+        message = IRCMessage(command, *args)
         logger.debug("sent: %r", message)
         self.transport.write(message.render().encode(self.charset) + b'\r\n')
 
@@ -58,7 +58,8 @@ class IRCClientProtocol(asyncio.Protocol):
 
 
 class IRCClient:
-    def __init__(self, host, port, nick_prefix, *, ssl, password=None):
+    def __init__(self, loop, host, port, nick_prefix, *, ssl, password=None):
+        self.loop = loop
         self.host = host
         self.port = port
         self.nick_prefix = nick_prefix
@@ -68,12 +69,12 @@ class IRCClient:
         self.pending_joins = {}
         self.pending_channels = {}
 
-    @asyncio.coroutine
-    def connect(self, loop):
-        self.loop = loop
+        self.event_queue = Queue(loop=loop)
 
-        _, self.proto = yield from loop.create_connection(
-            lambda: IRCClientProtocol(loop, self.nick_prefix, password=self.password),
+    @asyncio.coroutine
+    def connect(self):
+        _, self.proto = yield from self.loop.create_connection(
+            lambda: IRCClientProtocol(self.loop, self.nick_prefix, password=self.password),
             self.host, self.port, ssl=self.ssl)
 
         while True:
@@ -149,6 +150,14 @@ class IRCClient:
                     self.pending_joins[channel_name].set_result(channel)
                     del self.pending_joins[channel_name]
 
+        elif message.command == 'PRIVMSG':
+            event = Message(self, message)
+            self.event_queue.put_nowait(event)
+
+    @asyncio.coroutine
+    def read_event(self):
+        return (yield from self.event_queue.get())
+
 
     # Implementations of particular commands
 
@@ -163,13 +172,14 @@ class IRCClient:
 
         self.pending_channels[channel] = {}
         fut = asyncio.Future()
+        self.pending_joins[channel] = fut
         return fut
 
     @asyncio.coroutine
     def send_message(self, command, *args):
         self.proto.send_message(command, *args)
 
-class Message:
+class IRCMessage:
     def __init__(self, command, *args, prefix=None):
         # TODO command can't be a number when coming from a client
         self.command = command
@@ -235,5 +245,9 @@ class Message:
 
 class Event:
     """Something happened."""
-    def __init__(self, message):
+    def __init__(self, client, message):
+        self.client = client
         self.message = message
+
+class Message(Event):
+    pass
