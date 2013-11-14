@@ -2,7 +2,6 @@ import asyncio
 import re
 
 
-
 class IRCClient(asyncio.Protocol):
     def __init__(self, password):
         self.password = password
@@ -103,5 +102,3 @@ class Message:
             args.append(m.group('trailing'))
 
         return cls(m.group('command'), *args, prefix=m.group('prefix'))
-
-
