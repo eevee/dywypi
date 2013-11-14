@@ -3,7 +3,7 @@ import re
 
 
 class IRCClient(asyncio.Protocol):
-    def __init__(self, password):
+    def __init__(self, password, charset='utf8'):
         self.password = password
 
         self.buf = b''
@@ -28,7 +28,7 @@ class IRCClient(asyncio.Protocol):
                 return
 
             # TODO valerr
-            message = Message.parse(raw_message.decode('utf8'))
+            message = Message.parse(raw_message.decode(self.charset))
             print("recv:", repr(message))
             self.handle_message(message)
 
@@ -42,7 +42,7 @@ class IRCClient(asyncio.Protocol):
     def send_message(self, command, *args):
         message = Message(command, *args)
         print("sent:", repr(message))
-        self.transport.write(message.render().encode('utf8') + b'\r\n')
+        self.transport.write(message.render().encode(self.charset) + b'\r\n')
 
 
 class Message:
