@@ -1,12 +1,15 @@
 import asyncio
+from asyncio.queues import Queue
 import re
 
 
-class IRCClient(asyncio.Protocol):
-    def __init__(self, password, charset='utf8'):
+class IRCClientProtocol(asyncio.Protocol):
+    def __init__(self, loop, password, charset='utf8'):
         self.password = password
+        self.charset = charset
 
         self.buf = b''
+        self.message_queue = Queue(loop=loop)
         self.registered = False
 
     def connection_made(self, transport):
@@ -15,7 +18,7 @@ class IRCClient(asyncio.Protocol):
 
         # TODO maybe stick this bit in a coroutine?
         self.send_message('PASS', self.password)
-        self.send_message('NICK', 'dywypi')
+        self.send_message('NICK', 'dywypi-eevee')
         self.send_message('USER', 'dywypi', '-', '-', 'dywypi Python IRC bot')
 
     def data_received(self, data):
@@ -39,10 +42,36 @@ class IRCClient(asyncio.Protocol):
                 self.registered = True
                 self.send_message('JOIN', '#dywypi')
 
+        self.message_queue.put_nowait(message)
+
     def send_message(self, command, *args):
         message = Message(command, *args)
         print("sent:", repr(message))
         self.transport.write(message.render().encode(self.charset) + b'\r\n')
+
+    @asyncio.coroutine
+    def read_message(self):
+        return (yield from self.message_queue.get())
+
+
+class IRCClient:
+    def __init__(self, host, port, *, ssl, password=None):
+        self.host = host
+        self.port = port
+        self.ssl = ssl
+        self.password = password
+
+    @asyncio.coroutine
+    def connect(self, loop):
+        _, self.proto = yield from loop.create_connection(
+            lambda: IRCClientProtocol(loop, password=self.password),
+            self.host, self.port, ssl=self.ssl)
+
+        return self
+
+    @asyncio.coroutine
+    def read_message(self):
+        return (yield from self.proto.read_message())
 
 
 class Message:
@@ -102,3 +131,9 @@ class Message:
             args.append(m.group('trailing'))
 
         return cls(m.group('command'), *args, prefix=m.group('prefix'))
+
+
+class Event:
+    """Something happened."""
+    def __init__(self, message):
+        self.message = message

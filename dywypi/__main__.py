@@ -6,8 +6,11 @@ from dywypi.aioirc import IRCClient
 
 @asyncio.coroutine
 def main(loop, host, port, password):
-    tr, pr = yield from loop.create_connection(
-        lambda: IRCClient(password), host, port, ssl=True)
+    client = IRCClient(host, port, ssl=True, password=password)
+    yield from client.connect(loop)
+    while True:
+        message = yield from client.read_message()
+        print(repr(message))
 
 
 if __name__ == '__main__':
