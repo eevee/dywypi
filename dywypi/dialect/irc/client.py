@@ -1,63 +1,17 @@
 import asyncio
 from asyncio.queues import Queue
-import logging
-import re
 
-logger = logging.getLogger(__name__)
-
-
-class IRCClientProtocol(asyncio.Protocol):
-    def __init__(self, loop, nick_prefix, password, charset='utf8'):
-        self.nick = 'dywypi-' + nick_prefix
-        self.password = password
-        self.charset = charset
-
-        self.buf = b''
-        self.message_queue = Queue(loop=loop)
-        self.registered = False
-
-    def connection_made(self, transport):
-        self.transport = transport
-
-        # TODO maybe stick this bit in a coroutine?
-        self.send_message('PASS', self.password)
-        self.send_message('NICK', self.nick)
-        self.send_message('USER', 'dywypi', '-', '-', 'dywypi Python IRC bot')
-
-    def data_received(self, data):
-        data = self.buf + data
-        while True:
-            raw_message, delim, data = data.partition(b'\r\n')
-            if not delim:
-                # Incomplete message; stop here and wait for more
-                self.buf = raw_message
-                return
-
-            # TODO valerr
-            message = IRCMessage.parse(raw_message.decode(self.charset))
-            logger.debug("recv: %r", message)
-            self.handle_message(message)
-
-    def handle_message(self, message):
-        if message.command == 'PING':
-            self.send_message('PONG', message.args[-1])
-            if not self.registered:
-                self.registered = True
-                self.send_message('JOIN', '#dywypi')
-
-        self.message_queue.put_nowait(message)
-
-    def send_message(self, command, *args):
-        message = IRCMessage(command, *args)
-        logger.debug("sent: %r", message)
-        self.transport.write(message.render().encode(self.charset) + b'\r\n')
-
-    @asyncio.coroutine
-    def read_message(self):
-        return (yield from self.message_queue.get())
+from dywypi.event import Message
+from .protocol import IRCClientProtocol
 
 
 class IRCClient:
+    """Higher-level IRC client.  Takes care of most of the hard parts of IRC:
+    incoming server messages are bundled into more intelligible events (see
+    ``dywypi.event``), and commands that expect replies are implemented as
+    coroutines.
+    """
+
     def __init__(self, loop, host, port, nick_prefix, *, ssl, password=None):
         self.loop = loop
         self.host = host
@@ -73,28 +27,40 @@ class IRCClient:
 
     @asyncio.coroutine
     def connect(self):
+        """Coroutine for connecting to a single server.
+
+        Note that this will nonblock until the client is "registered", defined
+        as the first PING/PONG exchange.
+        """
+        # TODO: handle disconnection, somehow.  probably affects a lot of
+        # things.
         _, self.proto = yield from self.loop.create_connection(
             lambda: IRCClientProtocol(self.loop, self.nick_prefix, password=self.password),
             self.host, self.port, ssl=self.ssl)
 
         while True:
-            message = yield from self.read_message()
+            message = yield from self._read_message()
             if self.proto.registered:
                 break
 
-        asyncio.async(self.advance(), loop=self.loop)
+        asyncio.async(self._advance(), loop=self.loop)
 
     @asyncio.coroutine
-    def advance(self):
+    def _advance(self):
+        """Internal coroutine that just keeps the protocol message queue going.
+        Called once after a connect and should never be called again after
+        that.
+        """
         # TODO this is currently just to keep the message queue going, but
         # eventually it should turn them into events and stuff them in an event
         # queue
-        yield from self.read_message()
+        yield from self._read_message()
 
-        asyncio.async(self.advance(), loop=self.loop)
+        asyncio.async(self._advance(), loop=self.loop)
 
     @asyncio.coroutine
-    def read_message(self):
+    def _read_message(self):
+        """Internal dispatcher for messages received from the protocol."""
         message = yield from self.proto.read_message()
 
         if message.command == 'JOIN':
@@ -156,12 +122,20 @@ class IRCClient:
 
     @asyncio.coroutine
     def read_event(self):
+        """Produce a single IRC event.
+
+        This client does not do any kind of multiplexing or event handler
+        notification; that's left to a higher level.
+        """
         return (yield from self.event_queue.get())
 
 
     # Implementations of particular commands
 
     def join(self, channel, key=None):
+        """Coroutine that joins a channel, and nonblocks until the join is
+        "synchronized" (defined as receiving the nick list).
+        """
         # TODO multiple?  error on commas?
         if key is None:
             self.proto.send_message('JOIN', channel)
@@ -178,76 +152,3 @@ class IRCClient:
     @asyncio.coroutine
     def send_message(self, command, *args):
         self.proto.send_message(command, *args)
-
-class IRCMessage:
-    def __init__(self, command, *args, prefix=None):
-        # TODO command can't be a number when coming from a client
-        self.command = command
-        self.prefix = prefix
-        self.args = args
-
-        # TODO stricter validation: all str (?), last arg...
-
-    def __repr__(self):
-        prefix = ''
-        if self.prefix:
-            prefix = " via {}".format(self.prefix)
-
-        return "<{name}: {command} {args}{prefix}>".format(
-            name=type(self).__name__,
-            command=self.command,
-            args=', '.join(repr(arg) for arg in self.args),
-            prefix=prefix,
-        )
-
-    def render(self):
-        parts = [self.command] + list(self.args)
-        # TODO assert no spaces
-        # TODO assert nothing else begins with colon!
-        if self.args and ' ' in parts[-1]:
-            parts[-1] = ':' + parts[-1]
-
-        return ' '.join(parts)
-
-    PATTERN = re.compile(
-        r'''\A
-        (?: : (?P<prefix>[^ ]+) [ ]+ )?
-        (?P<command> \d{3} | [a-zA-Z]+ )
-        (?P<args>
-            (?: [ ]+ [^: \x00\r\n][^ \x00\r\n]* )*
-        )
-        (?:
-            [ ]+ [:] (?P<trailing> [^\x00\r\n]*)
-        )?
-        [ ]*
-        \Z''',
-        flags=re.VERBOSE)
-
-    @classmethod
-    def parse(cls, string):
-        # TODO uhhh what happens with encodings here.  ascii command, arbitrary
-        # encoding for everything else?
-        m = cls.PATTERN.match(string)
-        if not m:
-            raise ValueError(repr(string))
-
-        argstr = m.group('args').lstrip(' ')
-        if argstr:
-            args = re.split(' +', argstr)
-        else:
-            args = []
-
-        if m.group('trailing'):
-            args.append(m.group('trailing'))
-
-        return cls(m.group('command'), *args, prefix=m.group('prefix'))
-
-
-class Event:
-    """Something happened."""
-    def __init__(self, client, message):
-        self.client = client
-        self.message = message
-
-class Message(Event):
-    pass
