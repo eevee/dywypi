@@ -15,66 +15,82 @@ from dywypi.plugin import Plugin
 logger = logging.getLogger(__name__)
 plugin = Plugin('yelp')
 
+
 @plugin.command('Yelp')
 def where_to_eat(event):
     if event.argstr is None or re.search("@", event.argstr) is None:
         yield from event.reply('Usage: yelp Keyword@Location')
         return
-
     keyword, location = event.argstr.split("@")
-    business = yield from search(location, keyword)
 
-    if business is None:
-        yield from event.reply('Bad Day! Nothing found!')
-        return
-    yield from event.reply("Try this today: {name} {url}".format(
-        name=business["name"],
-        url=business["url"]
-    ))
+    try:
+        yelp = YelpAsyncAPI()
+        businesses = yield from yelp.search(location=location, keyword=keyword, sort=2)
+        if businesses is None:
+            yield from event.reply('Bad Day! Nothing found!')
+        else:
+            business = random.choice(businesses)
+            yield from event.reply("Try this today: {name} {url}".format(
+                name=business["name"],
+                url=business["url"]
+            ))
 
-
-@asyncio.coroutine
-def search(location, keyword=None, category_filter=None):
-    SEARCH_URI = 'http://api.yelp.com/v2/search'
-
-    # set oauth
-    consumer_key = os.environ["YELP_CONSUMER_KEY"]
-    consumer_secret = os.environ['YELP_CONSUMER_SECRET']
-    token = os.environ['YELP_TOKEN']
-    token_secret = os.environ['YELP_TOKEN_SECRET']
-    client = Client(
-        consumer_key,
-        client_secret=consumer_secret,
-        resource_owner_key=token,
-        resource_owner_secret=token_secret)
-
-    # start query
-    params=clean_params({
-        'term': keyword,
-        'location': location,
-        'category_filter': category_filter,
-        'sort': 2})
-    logger.debug("yelp send:%s", params)
-    uri = SEARCH_URI + "?" + params
-    uri, headers, _ = client.sign(uri)
-    response = yield from aiohttp.request(
-        'GET',
-        uri,
-        headers=headers)
-
-    data = json.loads((yield from response.read()).decode('utf8'))
-    if 'error' in data:
-        logger.debug(data)
-        return
-
-    business = random.choice(data['businesses'])
-    return business
+    except NoKeyError:
+        yield from event.reply('You have to setup the following keys: YELP_CONSUMER_(KEY|SECRET), YELP_TOKEN, YELP_TOKEN_SECRET')
+    except YelpAPIError as e:
+        yield from event.reply('Yelp returns Error: %s'.format(str(e)))
 
 
-def clean_params(params):
-    clean_params = {}
-    for key in params:
-        value = params[key]
-        if value:
-            clean_params[key] = str(value).replace(' ', '+')
-    return urlencode(clean_params)
+class YelpAsyncAPI:
+    def __init__(self):
+        # set oauth
+        consumer_key = os.environ["YELP_CONSUMER_KEY"]
+        consumer_secret = os.environ['YELP_CONSUMER_SECRET']
+        token = os.environ['YELP_TOKEN']
+        token_secret = os.environ['YELP_TOKEN_SECRET']
+        if consumer_key is None or consumer_secret is None or token is None or token_secret is None:
+            raise NoKeyError
+        self.client = Client( consumer_key,
+            client_secret=consumer_secret,
+            resource_owner_key=token,
+            resource_owner_secret=token_secret)
+
+    @asyncio.coroutine
+    def send_query(self, uri, params=None):
+        if params:
+            params = self.clean_params(params)
+        logger.debug("yelp send:%s", params)
+        uri = uri + "?" + params
+        uri, headers, _ = self.client.sign(uri)
+
+        response = yield from aiohttp.request(
+            'GET',
+            uri,
+            headers=headers)
+
+        data = json.loads((yield from response.read()).decode('utf8'))
+        if 'error' in data:
+            logger.debug(data)
+            raise YelpError(msg=data['error']['text'])
+        return data
+
+    def clean_params(self, params):
+        clean_params = {}
+        for key in params:
+            value = params[key]
+            if value:
+                clean_params[key] = str(value).replace(' ', '+')
+        return urlencode(clean_params)
+
+    @asyncio.coroutine
+    def search(self, **kwargs):
+        SEARCH_URI = 'http://api.yelp.com/v2/search'
+        params=kwargs
+
+        data = yield from self.send_query(SEARCH_URI, params=params)
+        return data['businesses']
+
+
+
+class NoKeyError(Exception): pass
+class YelpAPIError(Exception): pass
