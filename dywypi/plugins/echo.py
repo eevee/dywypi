@@ -13,3 +13,7 @@ def echo(event):
         return
 
     yield from event.reply(event.message[6:])
+
+@plugin.command('echo')
+def echo2(event):
+    yield from event.reply(event.argstr)

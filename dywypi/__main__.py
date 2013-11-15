@@ -20,7 +20,7 @@ def main(loop, uri):
 
     while True:
         event = yield from client.read_event()
-        manager.fire(loop, event)
+        manager.fire(event)
 
 if __name__ == '__main__':
     loop = asyncio.get_event_loop()

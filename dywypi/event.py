@@ -9,7 +9,12 @@ class Event:
     """Something happened."""
     def __init__(self, client, raw_message):
         self.client = client
+        self.loop = client.loop
         self.raw_message = raw_message
+
+    @classmethod
+    def from_event(cls, event, *args, **kwargs):
+        return cls(event.client, event.raw_message, *args, **kwargs)
 
 
 class Message(Event):

@@ -16,6 +16,7 @@ class EventWrapper:
     """
     def __init__(self, event):
         self.event = event
+        self.type = type(event)
 
     @asyncio.coroutine
     def reply(self, message):
@@ -35,9 +36,16 @@ class PluginEvent(Event):
 
 class PublicMessage(PluginEvent): pass
 
-class PrivateMessage(PluginEvent): pass
+class Command(PluginEvent):
+    def __init__(self, client, raw_message, command_name, argstr):
+        super().__init__(client, raw_message)
+        self.command_name = command_name
+        self.argstr = argstr
+        self.args = argstr.strip().split()
 
-class PublicMessage(PluginEvent): pass
+    @property
+    def channel(self):
+        return self.raw_message.args[0]
 
 class PluginManager:
     def __init__(self):
@@ -54,9 +62,44 @@ class PluginManager:
             plugin.start()
             self.loaded_plugins[name] = plugin
 
-    def fire(self, loop, event):
+    def _fire(self, event):
+        wrapped = EventWrapper(event)
+
         for plugin in self.loaded_plugins.values():
-            plugin.fire(loop, event)
+            plugin.fire(wrapped)
+
+    def _fire_command(self, original_event):
+        message = original_event.message[len(original_event.client.nick) + 1:]
+        try:
+            command_name, argstr = message.split(None, 1)
+        except ValueError:
+            command_name, argstr = message.strip(), ''
+        event = Command.from_event(original_event, command_name=command_name, argstr=argstr)
+        event = EventWrapper(event)
+        # TODO well this could be slightly more efficient
+        for plugin in self.loaded_plugins.values():
+            plugin.fire_command(event)
+
+    def fire(self, event):
+        self._fire(event)
+
+        # Possibly also fire plugin-specific events.
+        if isinstance(event, Message):
+            # Messages get broken down a little further.
+            is_public = (event.channel[0] in '#&!')
+            is_command = (event.message.startswith(event.client.nick) and
+                event.message[len(event.client.nick)] in ':, ')
+
+            if is_command or not is_public:
+                # Something addressed directly to us; this is a command and
+                # needs special handling!
+                self._fire_command(event)
+            else:
+                # Regular public message.
+                self._fire(PublicMessage.from_event(event))
+
+            # TODO: what about private messages that don't "look like"
+            # commands?  what about "all" public messages?  etc?
 
 
 class BasePlugin:
@@ -73,6 +116,7 @@ class BasePlugin:
 class Plugin(BasePlugin):
     def __init__(self, name):
         self.listeners = defaultdict(list)
+        self.commands = {}
 
         super().__init__(name)
 
@@ -91,14 +135,24 @@ class Plugin(BasePlugin):
 
         return decorator
 
-    def fire(self, loop, event):
-        wrapped = EventWrapper(event)
+    def command(self, command_name):
+        def decorator(f):
+            coro = asyncio.coroutine(f)
+            # TODO collisions etc
+            self.commands[command_name] = coro
+            return coro
+        return decorator
 
+    def fire(self, event):
         # OK actually fire the event.
-        for listener in self.listeners[type(event)]:
+        for listener in self.listeners[event.type]:
             # Fire them all off in parallel via async(); `yield from` would run
             # them all in serial and nonblock until they're all done!
-            asyncio.async(listener(wrapped), loop=loop)
+            asyncio.async(listener(event), loop=event.loop)
+
+    def fire_command(self, event):
+        if event.command_name in self.commands:
+            asyncio.async(self.commands[event.command_name](event), loop=event.loop)
 
     def start(self):
         # TODO need an onload hook or something?
