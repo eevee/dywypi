@@ -14,8 +14,8 @@ class IRCClientProtocol(asyncio.Protocol):
 
     You probably want `read_message`, or the higher-level client class.
     """
-    def __init__(self, loop, nick_prefix, password, charset='utf8'):
-        self.nick = 'dywypi-' + nick_prefix
+    def __init__(self, loop, nick, password, charset='utf8'):
+        self.nick = nick
         self.password = password
         self.charset = charset
 

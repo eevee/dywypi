@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import sys
+from urllib.parse import urlparse
 
 from dywypi.dialect.irc.client import IRCClient
 from dywypi.plugin import echo_plugin
@@ -10,10 +11,9 @@ logging.getLogger('dywypi').setLevel('DEBUG')
 
 
 @asyncio.coroutine
-def main(loop, host, port, nick_prefix, password):
-    client = IRCClient(loop, host, port, nick_prefix, ssl=True, password=password)
+def main(loop, uri):
+    client = IRCClient(loop, urlparse(uri))
     yield from client.connect()
-    channel = yield from client.join('#dywypi')
     echo_plugin.start(client)
     while True:
         event = yield from client.read_event()

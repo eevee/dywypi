@@ -1,5 +1,6 @@
 import asyncio
 from asyncio.queues import Queue
+import getpass
 
 from dywypi.event import Message
 from .protocol import IRCClientProtocol
@@ -12,13 +13,42 @@ class IRCClient:
     coroutines.
     """
 
-    def __init__(self, loop, host, port, nick_prefix, *, ssl, password=None):
+    def __init__(self, loop, uri):
         self.loop = loop
-        self.host = host
-        self.port = port
-        self.nick_prefix = nick_prefix
-        self.ssl = ssl
-        self.password = password
+
+        if uri.scheme == 'irc':
+            self.ssl = False
+        elif uri.scheme == 'ircs':
+            self.ssl = True
+        else:
+            raise ValueError("Not an IRC URI: {}".format(uri))
+
+        if uri.hostname:
+            self.host = uri.hostname
+        else:
+            raise ValueError("No hostname provided: {}".format(uri))
+
+        if uri.port:
+            self.port = uri.port
+        elif self.ssl:
+            self.port = 6697
+        else:
+            self.port = 6667
+
+        if uri.username:
+            self.nick = uri.username
+        else:
+            self.nick = getpass.getuser()
+
+        self.password = uri.password
+
+        if uri.path:
+            channel_name = uri.path.lstrip('/')
+            if not channel_name.startswith('#'):
+                channel_name = '#' + channel_name
+            self.initial_channels = [channel_name]
+        else:
+            self.initial_channels = []
 
         self.pending_joins = {}
         self.pending_channels = {}
@@ -35,13 +65,17 @@ class IRCClient:
         # TODO: handle disconnection, somehow.  probably affects a lot of
         # things.
         _, self.proto = yield from self.loop.create_connection(
-            lambda: IRCClientProtocol(self.loop, self.nick_prefix, password=self.password),
+            lambda: IRCClientProtocol(self.loop, self.nick, password=self.password),
             self.host, self.port, ssl=self.ssl)
 
         while True:
             message = yield from self._read_message()
             if self.proto.registered:
                 break
+
+        # Initial joins
+        for channel_name in self.initial_channels:
+            self.proto.send_message('JOIN', channel_name)
 
         asyncio.async(self._advance(), loop=self.loop)
 

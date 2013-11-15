@@ -1,4 +1,3 @@
-
 class Peer:
     def __init__(self, name, ident, host):
         self.name = name
@@ -12,5 +11,3 @@ class Channel:
         self.topic_author = None
         self.topic_timestamp = None
         self.users = []
-
-
