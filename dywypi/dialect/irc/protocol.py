@@ -25,8 +25,8 @@ class IRCClientProtocol(asyncio.Protocol):
 
     def connection_made(self, transport):
         self.transport = transport
-
-        self.send_message('PASS', self.password)
+        if self.password:
+            self.send_message('PASS', self.password)
         self.send_message('NICK', self.nick)
         self.send_message('USER', 'dywypi', '-', '-', 'dywypi Python IRC bot')
 
