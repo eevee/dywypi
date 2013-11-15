@@ -1,7 +1,13 @@
 import asyncio
 from collections import defaultdict
+import importlib
+import logging
+import pkgutil
 
 from dywypi.event import Event, Message
+
+logger = logging.getLogger(__name__)
+
 
 class EventWrapper:
     """Little wrapper around an event object that provides convenient plugin
@@ -21,7 +27,39 @@ class EventWrapper:
         return getattr(self.event, attr)
 
 
-class Plugin:
+class PluginEvent(Event):
+    """Base class for special plugin-only events that don't make sense for
+    generic clients.  Usually more specific versions of main dywypi events, to
+    allow for finer-grained listening in plugins.
+    """
+
+class PublicMessage(PluginEvent): pass
+
+class PrivateMessage(PluginEvent): pass
+
+class PublicMessage(PluginEvent): pass
+
+class PluginManager:
+    def __init__(self):
+        self.loaded_plugins = {}
+
+    def scan_package(self, package='dywypi.plugins'):
+        """Scans a Python package for in-process Python plugins."""
+        pkg = importlib.import_module(package)
+        for finder, name, is_pkg in pkgutil.iter_modules(pkg.__path__, prefix=package + '.'):
+            finder.find_module(name).load_module(name)
+
+    def loadall(self):
+        for name, plugin in BasePlugin._known_plugins.items():
+            plugin.start()
+            self.loaded_plugins[name] = plugin
+
+    def fire(self, loop, event):
+        for plugin in self.loaded_plugins.values():
+            plugin.fire(loop, event)
+
+
+class BasePlugin:
     _known_plugins = {}
 
     def __init__(self, name):
@@ -29,10 +67,14 @@ class Plugin:
             raise NameError("Can't have two plugins named {}!".format(name))
 
         self.name = name
-        self.client = None
+        self._known_plugins[name] = self
+
+
+class Plugin(BasePlugin):
+    def __init__(self, name):
         self.listeners = defaultdict(list)
 
-        self._known_plugins[name] = self
+        super().__init__(name)
 
     def on(self, event_cls):
         if not issubclass(event_cls, Event):
@@ -51,23 +93,13 @@ class Plugin:
 
     def fire(self, loop, event):
         wrapped = EventWrapper(event)
+
+        # OK actually fire the event.
         for listener in self.listeners[type(event)]:
             # Fire them all off in parallel via async(); `yield from` would run
             # them all in serial and nonblock until they're all done!
             asyncio.async(listener(wrapped), loop=loop)
 
-    def start(self, client):
-        self.client = client
-
-
-echo_plugin = Plugin('echo')
-
-@echo_plugin.on(Message)
-def echo_on_message(event):
-    if event.channel != '#dywypi':
-        return
-
-    if not event.message.startswith("echo: "):
-        return
-
-    yield from event.reply(event.message[6:])
+    def start(self):
+        # TODO need an onload hook or something?
+        pass
