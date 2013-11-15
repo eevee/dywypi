@@ -49,7 +49,6 @@ class IRCClientProtocol(asyncio.Protocol):
             self.send_message('PONG', message.args[-1])
             if not self.registered:
                 self.registered = True
-                self.send_message('JOIN', '#dywypi')
 
         self.message_queue.put_nowait(message)
 
