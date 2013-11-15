@@ -7,9 +7,16 @@ as such in its name.
 
 class Event:
     """Something happened."""
-    def __init__(self, client, message):
+    def __init__(self, client, raw_message):
         self.client = client
-        self.message = message
+        self.raw_message = raw_message
+
 
 class Message(Event):
-    pass
+    @property
+    def channel(self):
+        return self.raw_message.args[0]
+
+    @property
+    def message(self):
+        return self.raw_message.args[1]

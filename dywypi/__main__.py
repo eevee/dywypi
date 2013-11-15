@@ -19,7 +19,7 @@ def main(loop, host, port, nick_prefix, password):
         event = yield from client.read_event()
         from dywypi.event import Message
         if isinstance(event, Message):
-            asyncio.async(echo_plugin.send_on_message(event.message))
+            echo_plugin.fire(loop, event)
 
 if __name__ == '__main__':
     loop = asyncio.get_event_loop()
