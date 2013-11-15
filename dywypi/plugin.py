@@ -14,9 +14,14 @@ class EventWrapper:
     methods like `reply`.  All other attributes are delegated to the real
     event.
     """
-    def __init__(self, event):
+    def __init__(self, event, plugin_data):
         self.event = event
         self.type = type(event)
+        self.plugin_data = plugin_data
+
+    @property
+    def data(self):
+        return self.plugin_data
 
     @asyncio.coroutine
     def reply(self, message):
@@ -50,6 +55,7 @@ class Command(PluginEvent):
 class PluginManager:
     def __init__(self):
         self.loaded_plugins = {}
+        self.plugin_data = defaultdict(dict)
 
     def scan_package(self, package='dywypi.plugins'):
         """Scans a Python package for in-process Python plugins."""
@@ -62,10 +68,12 @@ class PluginManager:
             plugin.start()
             self.loaded_plugins[name] = plugin
 
-    def _fire(self, event):
-        wrapped = EventWrapper(event)
+    def _wrap_event(self, event, plugin):
+        return EventWrapper(event, self.plugin_data[plugin])
 
+    def _fire(self, event):
         for plugin in self.loaded_plugins.values():
+            wrapped = self._wrap_event(event, plugin)
             plugin.fire(wrapped)
 
     def _fire_command(self, original_event):
@@ -75,10 +83,10 @@ class PluginManager:
         except ValueError:
             command_name, argstr = message.strip(), ''
         event = Command.from_event(original_event, command_name=command_name, argstr=argstr)
-        event = EventWrapper(event)
         # TODO well this could be slightly more efficient
         for plugin in self.loaded_plugins.values():
-            plugin.fire_command(event)
+            wrapped = self._wrap_event(event, plugin)
+            plugin.fire_command(wrapped)
 
     def fire(self, event):
         self._fire(event)
