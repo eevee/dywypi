@@ -39,7 +39,10 @@ class PluginEvent(Event):
     allow for finer-grained listening in plugins.
     """
 
-class PublicMessage(PluginEvent): pass
+class PublicMessage(PluginEvent):
+    @property
+    def message(self):
+        return self.raw_message.args[1]
 
 class Command(PluginEvent):
     def __init__(self, client, raw_message, command_name, argstr):
@@ -84,6 +87,7 @@ class PluginManager:
             command_name, argstr = message.strip(), ''
         event = Command.from_event(original_event, command_name=command_name, argstr=argstr)
         # TODO well this could be slightly more efficient
+        # TODO should also mention when no command exists
         for plugin in self.loaded_plugins.values():
             wrapped = self._wrap_event(event, plugin)
             plugin.fire_command(wrapped)
@@ -165,3 +169,6 @@ class Plugin(BasePlugin):
     def start(self):
         # TODO need an onload hook or something?
         pass
+
+
+class PluginError(Exception): pass
