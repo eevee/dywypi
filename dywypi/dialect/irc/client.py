@@ -52,6 +52,7 @@ class IRCClient:
 
         self.pending_joins = {}
         self.pending_channels = {}
+        self.pending_names = {}
 
         self.event_queue = Queue(loop=loop)
 
@@ -121,12 +122,17 @@ class IRCClient:
         elif message.command == '353':
             # Names response.  Sent when joining or when requesting a names
             # list.  Must be ended with a 366.
-            me, equals_sign_for_some_reason, channel, raw_names = message.args
+            me, equals_sign_for_some_reason, channel, *raw_names = message.args
+            if raw_names:
+                raw_names = raw_names[0]
+            else:
+                raw_names = ''
             # TODO modes
             # TODO this doesn't handle the "requesting" part
             # TODO how does this work if it's responding to /names and there'll
             # be multiple lines?
             names = raw_names.strip(' ').split(' ')
+            # TODO these can't BOTH be true at the same time
             if channel in self.pending_channels:
                 self.pending_channels[channel]['names'] = names
 
@@ -144,11 +150,18 @@ class IRCClient:
                 channel.topic_timestamp = p.get('topic_timestamp')
                 channel.names = p.get('names')
 
+                # TODO might be from a names, in which case don't do that.
                 #self.channels[channel_name] = channel
 
                 if channel_name in self.pending_joins:
                     self.pending_joins[channel_name].set_result(channel)
                     del self.pending_joins[channel_name]
+
+                elif channel_name in self.pending_names:
+                    # TODO these should not EVER both be true at once;
+                    # rearchitect to enforce that
+                    self.pending_names[channel_name].set_result(channel.names)
+                    del self.pending_names[channel_name]
 
         elif message.command == 'PRIVMSG':
             event = Message(self, message)
@@ -181,6 +194,15 @@ class IRCClient:
         self.pending_channels[channel] = {}
         fut = asyncio.Future()
         self.pending_joins[channel] = fut
+        return fut
+
+    def names(self, channel):
+        """Coroutine that returns a list of names in a channel."""
+        self.proto.send_message('NAMES', channel)
+
+        self.pending_channels[channel] = {}
+        fut = asyncio.Future()
+        self.pending_names[channel] = fut
         return fut
 
     @asyncio.coroutine
