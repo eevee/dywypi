@@ -14,7 +14,7 @@ python setup.py develop
 
 ## Starting the Server
 
-To start the server run `python -m dywypi ircs://<nick>:<password>@<site> <room>`, for example: `python -m dywpi ircs://atlas:hunter2@irc.example.com #example`.
+To start the server run `python -m dywypi ircs://<nick>:<password>@<site> <channel>`, for example: `python -m dywpi ircs://atlas:hunter2@irc.example.com #example`.
 
 ## Creating a Plugin
 
@@ -22,7 +22,7 @@ Once dywypi is installed, you can create plugins in your own project. To do this
 
 ### Example Plugin: Reverse
 
-```
+```python
 from dywypi.plugin import Plugin
 
 plugin = Plugin('reverse')
@@ -34,5 +34,7 @@ def reverse(event):
 
 A conversation with a bot running the reverse plugin would look something like this:
 
+```
 <campaul> atlas: reverse foobar
 <atlas> raboof
+```
