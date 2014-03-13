@@ -183,7 +183,7 @@ class IRCClient:
 
     def set_topic(self, channel, topic):
         """Sets the channel topic."""
-        self.proto.send_message('TOPIC', channel, topic);
+        self.proto.send_message('TOPIC', channel, topic)
 
     @asyncio.coroutine
     def send_message(self, command, *args):
