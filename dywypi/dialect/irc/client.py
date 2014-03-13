@@ -118,7 +118,7 @@ class IRCClient:
             # Someone else just joined the channel
             self.joined_channels[channel_name].add_user(joiner)
 
-    def _handle_332(self, message):
+    def _handle_RPL_TOPIC(self, message):
         # Topic.  Sent when joining or when requesting the topic.
         # TODO this doesn't handle the "requesting" part
         # TODO what if me != me?
@@ -126,8 +126,8 @@ class IRCClient:
         if channel in self.pending_channels:
             self.pending_channels[channel]['topic'] = topic
 
-    def _handle_333(self, message):
-        # Topic author (NONSTANDARD).  Sent after 332.
+    def _handle_RPL_TOPICWHOTIME(self, message):
+        # Topic author (NONSTANDARD).  Sent after RPL_TOPIC.
         # TODO this doesn't handle the "requesting" part
         # TODO what if me != me?
         me, channel, author, timestamp = message.args
@@ -135,9 +135,9 @@ class IRCClient:
             self.pending_channels[channel]['topic_author'] = Peer.from_prefix(author)
             self.pending_channels[channel]['topic_timestamp'] = datetime.utcfromtimestamp(int(timestamp))
 
-    def _handle_353(self, message):
+    def _handle_RPL_NAMREPLY(self, message):
         # Names response.  Sent when joining or when requesting a names
-        # list.  Must be ended with a 366.
+        # list.  Must be ended with a RPL_ENDOFNAMES.
         me, equals_sign_for_some_reason, channel, *raw_names = message.args
         if raw_names:
             raw_names = raw_names[0]
@@ -152,7 +152,7 @@ class IRCClient:
         if channel in self.pending_channels:
             self.pending_channels[channel]['names'] = names
 
-    def _handle_366(self, message):
+    def _handle_RPL_ENDOFNAMES(self, message):
         # End of names list.  Sent at the very end of a join or the very
         # end of a NAMES request.
         me, channel_name, info = message.args
