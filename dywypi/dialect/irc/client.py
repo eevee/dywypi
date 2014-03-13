@@ -64,7 +64,7 @@ class IRCClient:
             server.host, server.port, ssl=server.tls)
 
         while True:
-            message = yield from self._read_message()
+            yield from self._read_message()
             if self.proto.registered:
                 break
 
@@ -100,109 +100,109 @@ class IRCClient:
         # than a 500-line if tree.
         handler = getattr(self, '_handle_' + message.command, None)
         if handler:
-            return handler(message)
+            handler(message)
 
-        if message.command == 'JOIN':
-            channel_name, = message.args
-            joiner = Peer.from_prefix(message.prefix)
-            # TODO should there be a self.me?  how...
-            if joiner.name == self.nick:
-                # We just joined a channel
-                #assert channel_name not in self.joined_channels
-                # TODO key?  do we care?
-                # TODO what about channel configuration and anon non-joined
-                # channels?  how do these all relate...
-                channel = IRCChannel(self, channel_name)
-                self.joined_channels[channel.name] = channel
+    def _handle_JOIN(self, message):
+        channel_name, = message.args
+        joiner = Peer.from_prefix(message.prefix)
+        # TODO should there be a self.me?  how...
+        if joiner.name == self.nick:
+            # We just joined a channel
+            #assert channel_name not in self.joined_channels
+            # TODO key?  do we care?
+            # TODO what about channel configuration and anon non-joined
+            # channels?  how do these all relate...
+            channel = IRCChannel(self, channel_name)
+            self.joined_channels[channel.name] = channel
+        else:
+            # Someone else just joined the channel
+            self.joined_channels[channel_name].add_user(joiner)
+
+    def _handle_332(self, message):
+        # Topic.  Sent when joining or when requesting the topic.
+        # TODO this doesn't handle the "requesting" part
+        # TODO what if me != me?
+        me, channel, topic = message.args
+        if channel in self.pending_channels:
+            self.pending_channels[channel]['topic'] = topic
+
+    def _handle_333(self, message):
+        # Topic author (NONSTANDARD).  Sent after 332.
+        # TODO this doesn't handle the "requesting" part
+        # TODO what if me != me?
+        me, channel, author, timestamp = message.args
+        if channel in self.pending_channels:
+            self.pending_channels[channel]['topic_author'] = Peer.from_prefix(author)
+            self.pending_channels[channel]['topic_timestamp'] = datetime.utcfromtimestamp(int(timestamp))
+
+    def _handle_353(self, message):
+        # Names response.  Sent when joining or when requesting a names
+        # list.  Must be ended with a 366.
+        me, equals_sign_for_some_reason, channel, *raw_names = message.args
+        if raw_names:
+            raw_names = raw_names[0]
+        else:
+            raw_names = ''
+        # TODO modes
+        # TODO this doesn't handle the "requesting" part
+        # TODO how does this work if it's responding to /names and there'll
+        # be multiple lines?
+        names = raw_names.strip(' ').split(' ')
+        # TODO these can't BOTH be true at the same time
+        if channel in self.pending_channels:
+            self.pending_channels[channel]['names'] = names
+
+    def _handle_366(self, message):
+        # End of names list.  Sent at the very end of a join or the very
+        # end of a NAMES request.
+        me, channel_name, info = message.args
+        if channel_name in self.pending_channels:
+            # Join synchronized!
+            if channel_name in self.joined_channels:
+                channel = self.joined_channels[channel_name]
             else:
-                # Someone else just joined the channel
-                self.joined_channels[channel_name].add_user(joiner)
+                channel = IRCChannel(channel_name, None)
+            p = self.pending_channels.pop(channel_name, {})
+            # We don't receive a RPL_TOPIC if the topic has never been set
+            if 'topic' in p:
+                channel.topic = IRCTopic(
+                    p['topic'],
+                    # These are nonstandard and thus optional
+                    p.get('topic_author'),
+                    p.get('topic_timestamp'),
+                )
 
-        elif message.command == '332':
-            # Topic.  Sent when joining or when requesting the topic.
-            # TODO this doesn't handle the "requesting" part
-            # TODO what if me != me?
-            me, channel, topic = message.args
-            if channel in self.pending_channels:
-                self.pending_channels[channel]['topic'] = topic
+            for name in p.get('names', ()):
+                modes = set()
+                # TODO use features!
+                while name and name[0] in '+%@&~':
+                    modes.append(name[0])
+                    name = name[1:]
 
-        elif message.command == '333':
-            # Topic author (NONSTANDARD).  Sent after 332.
-            # TODO this doesn't handle the "requesting" part
-            # TODO what if me != me?
-            me, channel, author, timestamp = message.args
-            if channel in self.pending_channels:
-                self.pending_channels[channel]['topic_author'] = Peer.from_prefix(author)
-                self.pending_channels[channel]['topic_timestamp'] = datetime.utcfromtimestamp(int(timestamp))
+                # TODO haha no this is so bad.
+                # TODO the bot should, obviously, keep a record of all
+                # known users as well.  alas, mutable everything.
+                peer = Peer(name, None, None)
 
-        elif message.command == '353':
-            # Names response.  Sent when joining or when requesting a names
-            # list.  Must be ended with a 366.
-            me, equals_sign_for_some_reason, channel, *raw_names = message.args
-            if raw_names:
-                raw_names = raw_names[0]
-            else:
-                raw_names = ''
-            # TODO modes
-            # TODO this doesn't handle the "requesting" part
-            # TODO how does this work if it's responding to /names and there'll
-            # be multiple lines?
-            names = raw_names.strip(' ').split(' ')
-            # TODO these can't BOTH be true at the same time
-            if channel in self.pending_channels:
-                self.pending_channels[channel]['names'] = names
+                channel.add_user(peer, modes)
 
-        elif message.command == '366':
-            # End of names list.  Sent at the very end of a join or the very
-            # end of a NAMES request.
-            me, channel_name, info = message.args
-            if channel_name in self.pending_channels:
-                # Join synchronized!
-                if channel_name in self.joined_channels:
-                    channel = self.joined_channels[channel_name]
-                else:
-                    channel = IRCChannel(channel_name, None)
-                p = self.pending_channels.pop(channel_name, {})
-                # We don't receive a RPL_TOPIC if the topic has never been set
-                if 'topic' in p:
-                    channel.topic = IRCTopic(
-                        p['topic'],
-                        # These are nonstandard and thus optional
-                        p.get('topic_author'),
-                        p.get('topic_timestamp'),
-                    )
+            if channel_name in self.pending_joins:
+                # Record the join
+                self.joined_channels[channel_name] = channel
 
-                for name in p.get('names', ()):
-                    modes = set()
-                    # TODO use features!
-                    while name and name[0] in '+%@&~':
-                        modes.append(name[0])
-                        name = name[1:]
+                # Update the Future
+                self.pending_joins[channel_name].set_result(channel)
+                del self.pending_joins[channel_name]
 
-                    # TODO haha no this is so bad.
-                    # TODO the bot should, obviously, keep a record of all
-                    # known users as well.  alas, mutable everything.
-                    peer = Peer(name, None, None)
+            elif channel_name in self.pending_names:
+                # TODO these should not EVER both be true at once;
+                # rearchitect to enforce that
+                self.pending_names[channel_name].set_result(channel.names)
+                del self.pending_names[channel_name]
 
-                    channel.add_user(peer, modes)
-
-                if channel_name in self.pending_joins:
-                    # Record the join
-                    self.joined_channels[channel_name] = channel
-
-                    # Update the Future
-                    self.pending_joins[channel_name].set_result(channel)
-                    del self.pending_joins[channel_name]
-
-                elif channel_name in self.pending_names:
-                    # TODO these should not EVER both be true at once;
-                    # rearchitect to enforce that
-                    self.pending_names[channel_name].set_result(channel.names)
-                    del self.pending_names[channel_name]
-
-        elif message.command == 'PRIVMSG':
-            event = Message(self, message)
-            self.event_queue.put_nowait(event)
+    def _handle_PRIVMSG(self, message):
+        event = Message(self, message)
+        self.event_queue.put_nowait(event)
 
     @asyncio.coroutine
     def read_event(self):
