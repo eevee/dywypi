@@ -6,7 +6,7 @@ import pkgutil
 
 from dywypi.event import Event, Message
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
 class EventWrapper:
@@ -64,7 +64,12 @@ class PluginManager:
         """Scans a Python package for in-process Python plugins."""
         pkg = importlib.import_module(package)
         for finder, name, is_pkg in pkgutil.iter_modules(pkg.__path__, prefix=package + '.'):
-            finder.find_module(name).load_module(name)
+            try:
+                finder.find_module(name).load_module(name)
+            except ImportError as exc:
+                log.error(
+                    "Couldn't import plugin module {}: {}"
+                    .format(name, exc))
 
     def loadall(self):
         for name, plugin in BasePlugin._known_plugins.items():
