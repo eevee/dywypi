@@ -57,14 +57,35 @@ class Server:
 
 
 class Peer:
-    def __init__(self, name, ident, host):
+    def __init__(self, name, ident, host, *, is_server=False):
         self.name = name
         self.ident = ident
         self.host = host
+        self.is_server = is_server
+
+    @classmethod
+    def from_prefix(cls, prefix):
+        """Parse a raw IRC prefix (probably from `IRCMessage.prefix`) of the
+        form name!ident@host.
+        """
+        if '!' in prefix:
+            # Another user: name!ident@host
+            name, identhost = prefix.split('!', 1)
+            ident, host = prefix.split('@', 1)
+            return cls(name, ident, host)
+        else:
+            # Must be a server talking to us
+            # TODO should this be a different class?  a Server?  have a Server
+            # property?  otherwise work differently?
+            # TODO this is a bit kludgy.
+            return cls(prefix, None, prefix, is_server=True)
 
 
 class Channel:
-    def __init__(self, name, key):
+    def __init__(self, name, key=None):
+        self.name = name
+        self.key = key
+
         self.topic = None
         self.topic_author = None
         self.topic_timestamp = None
