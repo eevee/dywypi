@@ -1,9 +1,13 @@
 import asyncio
 from asyncio.queues import Queue
+from datetime import datetime
 import getpass
 
 from dywypi.event import Message
+from dywypi.state import Peer
 from .protocol import IRCClientProtocol
+from .state import IRCChannel
+from .state import IRCTopic
 
 
 class IRCClient:
@@ -17,11 +21,26 @@ class IRCClient:
         self.loop = loop
         self.network = network
 
+        self.joined_channels = {}  # name => Channel
         self.pending_joins = {}
         self.pending_channels = {}
         self.pending_names = {}
 
         self.event_queue = Queue(loop=loop)
+
+    def get_channel(self, channel_name):
+        """Returns a `Channel` object containing everything the client
+        definitively knows about the given channel.
+
+        Note that if you, say, ask for the topic of a channel you aren't in and
+        then immediately call `get_channel`, the returned object won't have its
+        topic populated.  State is only tracked persistently for channels the
+        bot is in; otherwise there's no way to know whether or not it's stale.
+        """
+        if channel_name in self.joined_channels:
+            return self.joined_channels[channel_name]
+        else:
+            return IRCChannel(self, channel_name)
 
     @asyncio.coroutine
     def connect(self):
@@ -49,12 +68,15 @@ class IRCClient:
             if self.proto.registered:
                 break
 
-        # Initial joins
-        for channel_name in self.network.autojoins:
-            # TODO are you telling me there's no .join() yet or
-            self.proto.send_message('JOIN', channel_name)
-
+        # Start the event loop as soon as we've synched, or we can't respond to
+        # anything
         asyncio.async(self._advance(), loop=self.loop)
+
+        # Initial joins
+        yield from asyncio.gather(*[
+            self.join(channel_name)
+            for channel_name in self.network.autojoins
+        ], loop=self.loop)
 
     @asyncio.coroutine
     def _advance(self):
@@ -74,9 +96,27 @@ class IRCClient:
         """Internal dispatcher for messages received from the protocol."""
         message = yield from self.proto.read_message()
 
+        # Boy do I ever hate this pattern but it's slightly more maintainable
+        # than a 500-line if tree.
+        handler = getattr(self, '_handle_' + message.command, None)
+        if handler:
+            return handler(message)
+
         if message.command == 'JOIN':
             channel_name, = message.args
-            self.pending_channels[channel_name] = {}
+            joiner = Peer.from_prefix(message.prefix)
+            # TODO should there be a self.me?  how...
+            if joiner.name == self.nick:
+                # We just joined a channel
+                #assert channel_name not in self.joined_channels
+                # TODO key?  do we care?
+                # TODO what about channel configuration and anon non-joined
+                # channels?  how do these all relate...
+                channel = IRCChannel(self, channel_name)
+                self.joined_channels[channel.name] = channel
+            else:
+                # Someone else just joined the channel
+                self.joined_channels[channel_name].add_user(joiner)
 
         elif message.command == '332':
             # Topic.  Sent when joining or when requesting the topic.
@@ -92,8 +132,8 @@ class IRCClient:
             # TODO what if me != me?
             me, channel, author, timestamp = message.args
             if channel in self.pending_channels:
-                self.pending_channels[channel]['topic_author'] = author
-                self.pending_channels[channel]['topic_timestamp'] = int(timestamp)
+                self.pending_channels[channel]['topic_author'] = Peer.from_prefix(author)
+                self.pending_channels[channel]['topic_timestamp'] = datetime.utcfromtimestamp(int(timestamp))
 
         elif message.command == '353':
             # Names response.  Sent when joining or when requesting a names
@@ -114,22 +154,43 @@ class IRCClient:
 
         elif message.command == '366':
             # End of names list.  Sent at the very end of a join or the very
-            # end of a names request.
+            # end of a NAMES request.
             me, channel_name, info = message.args
             if channel_name in self.pending_channels:
                 # Join synchronized!
-                from dywypi.state import Channel
-                channel = Channel(channel_name, None)
-                p = self.pending_channels[channel_name]
-                channel.topic = p.get('topic')
-                channel.topic_author = p.get('topic_author')
-                channel.topic_timestamp = p.get('topic_timestamp')
-                channel.names = p.get('names')
+                if channel_name in self.joined_channels:
+                    channel = self.joined_channels[channel_name]
+                else:
+                    channel = IRCChannel(channel_name, None)
+                p = self.pending_channels.pop(channel_name, {})
+                # We don't receive a RPL_TOPIC if the topic has never been set
+                if 'topic' in p:
+                    channel.topic = IRCTopic(
+                        p['topic'],
+                        # These are nonstandard and thus optional
+                        p.get('topic_author'),
+                        p.get('topic_timestamp'),
+                    )
 
-                # TODO might be from a names, in which case don't do that.
-                #self.channels[channel_name] = channel
+                for name in p.get('names', ()):
+                    modes = set()
+                    # TODO use features!
+                    while name and name[0] in '+%@&~':
+                        modes.append(name[0])
+                        name = name[1:]
+
+                    # TODO haha no this is so bad.
+                    # TODO the bot should, obviously, keep a record of all
+                    # known users as well.  alas, mutable everything.
+                    peer = Peer(name, None, None)
+
+                    channel.add_user(peer, modes)
 
                 if channel_name in self.pending_joins:
+                    # Record the join
+                    self.joined_channels[channel_name] = channel
+
+                    # Update the Future
                     self.pending_joins[channel_name].set_result(channel)
                     del self.pending_joins[channel_name]
 

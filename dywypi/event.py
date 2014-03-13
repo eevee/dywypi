@@ -17,6 +17,10 @@ class Event:
     def from_event(cls, event, *args, **kwargs):
         return cls(event.client, event.raw_message, *args, **kwargs)
 
+    @property
+    def source(self):
+       return Peer.from_prefix(self.raw_message.prefix)
+
 
 class _MessageMixin:
     """Provides some common accesors used by both the regular `Message` event
@@ -29,9 +33,7 @@ class _MessageMixin:
         """
         target_name = self.raw_message.args[0]
         if target_name[0] in '#&!':
-            # TODO this should grab an existing Channel instance from the
-            # client
-            return Channel(target_name)
+            return self.client.get_channel(target_name)
         else:
             # TODO this too but less urgent
             # TODO this is actually /us/, so.
@@ -43,14 +45,11 @@ class _MessageMixin:
         message.
         """
         target = self.target
-        if isinstance(target, Channel):
-            return target
-        else:
+        # TODO lol this is so hacky; give them is_* accessors plz
+        if isinstance(target, Peer):
             return None
-
-    @property
-    def source(self):
-       return Peer.from_prefix(self.raw_message.prefix)
+        else:
+            return target
 
     @property
     def message(self):
