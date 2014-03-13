@@ -74,6 +74,7 @@ class PluginManager:
     def loadall(self):
         for name, plugin in BasePlugin._known_plugins.items():
             plugin.start()
+            log.info("Loaded plugin {}".format(name))
             self.loaded_plugins[name] = plugin
 
     def _wrap_event(self, event, plugin):
