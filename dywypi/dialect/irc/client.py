@@ -181,6 +181,10 @@ class IRCClient:
         self.pending_names[channel] = fut
         return fut
 
+    def set_topic(self, channel, topic):
+        """Sets the channel topic."""
+        self.proto.send_message('TOPIC', channel, topic);
+
     @asyncio.coroutine
     def send_message(self, command, *args):
         self.proto.send_message(command, *args)
