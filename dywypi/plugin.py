@@ -4,7 +4,7 @@ import importlib
 import logging
 import pkgutil
 
-from dywypi.event import Event, Message
+from dywypi.event import Event, Message, _MessageMixin
 
 log = logging.getLogger(__name__)
 
@@ -25,9 +25,11 @@ class EventWrapper:
 
     @asyncio.coroutine
     def reply(self, message):
-        # TODO this doesn't work if the event isn't from a channel, if there is
-        # no channel, etc.
-        yield from self.event.client.send_message('PRIVMSG', self.event.channel, message)
+        if self.event.channel:
+            reply_to = self.event.channel.name
+        else:
+            reply_to = self.event.source.name
+        yield from self.event.client.send_message('PRIVMSG', reply_to, message)
 
     def __getattr__(self, attr):
         return getattr(self.event, attr)
@@ -39,21 +41,22 @@ class PluginEvent(Event):
     allow for finer-grained listening in plugins.
     """
 
-class PublicMessage(PluginEvent):
-    @property
-    def message(self):
-        return self.raw_message.args[1]
 
-class Command(PluginEvent):
+class PublicMessage(PluginEvent, _MessageMixin):
+    pass
+
+
+class Command(PluginEvent, _MessageMixin):
     def __init__(self, client, raw_message, command_name, argstr):
         super().__init__(client, raw_message)
         self.command_name = command_name
         self.argstr = argstr
         self.args = argstr.strip().split()
 
-    @property
-    def channel(self):
-        return self.raw_message.args[0]
+    def __repr__(self):
+        return "<{}: {} {!r}>".format(
+            type(self).__qualname__, self.command_name, self.args)
+
 
 class PluginManager:
     def __init__(self):
@@ -85,17 +88,12 @@ class PluginManager:
             wrapped = self._wrap_event(event, plugin)
             plugin.fire(wrapped)
 
-    def _fire_command(self, original_event):
-        message = original_event.message[len(original_event.client.nick) + 1:]
-        try:
-            command_name, argstr = message.split(None, 1)
-        except ValueError:
-            command_name, argstr = message.strip(), ''
-        event = Command.from_event(original_event, command_name=command_name, argstr=argstr)
+    def _fire_command(self, command_event):
         # TODO well this could be slightly more efficient
         # TODO should also mention when no command exists
+        log.info(command_event)
         for plugin in self.loaded_plugins.values():
-            wrapped = self._wrap_event(event, plugin)
+            wrapped = self._wrap_event(command_event, plugin)
             plugin.fire_command(wrapped)
 
     def fire(self, event):
@@ -104,14 +102,28 @@ class PluginManager:
         # Possibly also fire plugin-specific events.
         if isinstance(event, Message):
             # Messages get broken down a little further.
-            is_public = (event.channel[0] in '#&!')
+            is_public = (event.channel)
             is_command = (event.message.startswith(event.client.nick) and
                 event.message[len(event.client.nick)] in ':, ')
 
             if is_command or not is_public:
                 # Something addressed directly to us; this is a command and
                 # needs special handling!
-                self._fire_command(event)
+                if is_command:
+                    message = event.message[len(event.client.nick) + 1:]
+                else:
+                    message = event.message
+                try:
+                    command_name, argstr = message.split(None, 1)
+                except ValueError:
+                    command_name, argstr = message.strip(), ''
+
+                command_event = Command.from_event(
+                    event,
+                    command_name=command_name,
+                    argstr=argstr,
+                )
+                self._fire_command(command_event)
             else:
                 # Regular public message.
                 self._fire(PublicMessage.from_event(event))
