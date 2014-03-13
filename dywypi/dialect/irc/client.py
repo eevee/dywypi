@@ -13,42 +13,9 @@ class IRCClient:
     coroutines.
     """
 
-    def __init__(self, loop, uri):
+    def __init__(self, loop, network):
         self.loop = loop
-
-        if uri.scheme == 'irc':
-            self.ssl = False
-        elif uri.scheme == 'ircs':
-            self.ssl = True
-        else:
-            raise ValueError("Not an IRC URI: {}".format(uri))
-
-        if uri.hostname:
-            self.host = uri.hostname
-        else:
-            raise ValueError("No hostname provided: {}".format(uri))
-
-        if uri.port:
-            self.port = uri.port
-        elif self.ssl:
-            self.port = 6697
-        else:
-            self.port = 6667
-
-        if uri.username:
-            self.nick = uri.username
-        else:
-            self.nick = getpass.getuser()
-
-        self.password = uri.password
-
-        if uri.path:
-            channel_name = uri.path.lstrip('/')
-            if not channel_name.startswith('#'):
-                channel_name = '#' + channel_name
-            self.initial_channels = [channel_name]
-        else:
-            self.initial_channels = []
+        self.network = network
 
         self.pending_joins = {}
         self.pending_channels = {}
@@ -63,11 +30,19 @@ class IRCClient:
         Note that this will nonblock until the client is "registered", defined
         as the first PING/PONG exchange.
         """
+        # TODO this is a poor excuse for round-robin  :)
+        server = self.current_server = self.network.servers[0]
+
+        # TODO i'm pretty sure the server tells us what our nick is, and we
+        # should believe that instead
+        self.nick = self.network.preferred_nick
+
         # TODO: handle disconnection, somehow.  probably affects a lot of
         # things.
         _, self.proto = yield from self.loop.create_connection(
-            lambda: IRCClientProtocol(self.loop, self.nick, password=self.password),
-            self.host, self.port, ssl=self.ssl)
+            lambda: IRCClientProtocol(
+                self.loop, self.network.preferred_nick, password=server.password),
+            server.host, server.port, ssl=server.tls)
 
         while True:
             message = yield from self._read_message()
@@ -75,7 +50,8 @@ class IRCClient:
                 break
 
         # Initial joins
-        for channel_name in self.initial_channels:
+        for channel_name in self.network.autojoins:
+            # TODO are you telling me there's no .join() yet or
             self.proto.send_message('JOIN', channel_name)
 
         asyncio.async(self._advance(), loop=self.loop)
