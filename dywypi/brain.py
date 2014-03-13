@@ -64,7 +64,8 @@ class Brain:
 
     def configure_from_argv(self, argv=None):
         # Scan for known plugins first
-        self.plugin_manager.scan_package()
+        self.plugin_manager.scan_package('dywypi.plugins')
+        self.plugin_manager.scan_package('dywypi_plugins')
 
         parser = self.build_parser()
         # The returned namespace should be junk, since arguments all have
