@@ -7,6 +7,7 @@ interesting things.
 # - https://bitbucket.org/aafshar/txurwid-main/src
 
 import asyncio
+from asyncio.queues import Queue
 import logging
 import os
 import sys
@@ -43,9 +44,9 @@ class ProtocolFileAdapter(object):
         pass
 
 
-class TwistedScreen(Screen):
-    """An urwid screen that speaks to a Twisted protocol, rather than mucking
-    with stdin and stdout.  Much.
+class AsyncScreen(Screen):
+    """An Urwid screen that speaks to an asyncio transport, rather than mucking
+    directly with stdin and stdout.
     """
 
     def __init__(self, transport):
@@ -74,8 +75,8 @@ class TwistedScreen(Screen):
 
         self._start_gpm_tracking()
 
-    # twisted handles polling, so we don't need the loop to do it, we just
-    # push what we get to the loop from dataReceived.
+    # asyncio handles polling, so we don't need the loop to do it, we just push
+    # what we get to the loop from dataReceived.
     def get_input_descriptors(self):
         return []
 
@@ -127,7 +128,6 @@ class UrwidTerminalProtocol(asyncio.Protocol):
         """Pass keypresses along the bridge to urwid's main loop, which knows
         how to handle them.
         """
-        logger.info('received: %r', data)
         self.bridge.push_input(data)
 
 
@@ -248,7 +248,7 @@ class AsyncioUrwidEventLoop:
 # TODO: when urwid wants to stop, need to close the connection and kill the service AND then the reactor...
 # TODO: ctrl-c is apparently caught by twistd, not urwid?
 class AsyncUrwidBridge(object):
-    """Core of a simple bridge between Twisted and Urwid running on a local
+    """Core of a simple bridge between asyncio and Urwid running on a local
     terminal.  Subclass this guy.
     """
 
@@ -259,7 +259,7 @@ class AsyncUrwidBridge(object):
 
         self.widget = self.build_toplevel_widget()
 
-        self.screen = TwistedScreen(write_transport)
+        self.screen = AsyncScreen(write_transport)
         self.loop = urwid.MainLoop(
             self.widget,
             screen=self.screen,
@@ -283,7 +283,6 @@ class AsyncUrwidBridge(object):
 
     def unhandled_input(self, input):
         """Do something with unhandled keypresses."""
-        print(repr(input))
         pass
 
     # Starting and stopping urwid
@@ -296,7 +295,7 @@ class AsyncUrwidBridge(object):
         # TODO this probably needs slightly more effort
         self.screen.stop()
 
-    # Twisted interfacing
+    # UrwidTerminalProtocol interface
 
     def push_input(self, data):
         """Receive data from Twisted and push it into urwid's main loop.
@@ -314,7 +313,6 @@ class AsyncUrwidBridge(object):
         self.loop.process_input(processed_keys)
         # And redraw.
         self.redraw()
-
 
 
 ### DYWYPI-SPECIFIC FROM HERE
@@ -381,7 +379,17 @@ class DywypiShell(AsyncUrwidBridge):
         ]
 
     def unhandled_input(self, key):
-        print(key)
+        # Try passing the key along to the listbox, so pgup/pgdn still work.
+        # Note that this is a Pile method specifically, and requires an index
+        # rather than a widget
+        # TODO no indication whether we're currently scrolled up.  scroll back
+        # to bottom after x seconds with no input?
+        listsize = self.widget.get_item_size(
+            self.loop.screen_size, 0, False)
+        key = self.pane.keypress(listsize, key)
+        if key:
+            # `key` gets returned if it wasn't consumed
+            self.add_log_line(key)
 
     def start(self):
         super(DywypiShell, self).start()
@@ -398,10 +406,6 @@ class DywypiShell(AsyncUrwidBridge):
 
     def handle_line(self, line):
         """Deal with a line of input."""
-        # TODO this should be part of debug output in the irc shell, too, and
-        # not baked in here
-        #log.msg("received: " + repr(line))
-
         logger.info(line)
 
         #from twisted.internet import defer
@@ -442,36 +446,22 @@ class DywypiShellLoggingHandler(logging.Handler):
     def emit(self, record):
         try:
             msg = self.format(record)
-            self.shell_service.add_log_line(msg)
+            try:
+                color = LOG_LEVEL_COLORS[record.levelno]
+            except KeyError:
+                color = LOG_LEVEL_COLORS[logging.INFO]
+            self.shell_service.add_log_line(msg, color=color)
         except Exception:
             self.handleError(record)
 
 
         '''
-        text = log.textFromEventDict(event)
-        if text is None:
-            return
-
-        if event['isError']:
-            level = logging.ERROR
-        elif 'level' in event:
-            level = event['level']
-        else:
-            level = logging.INFO
-
         # Format
         line = "{time} [{system}] {text}\n".format(
             time=self.formatTime(event['time']),
             system=event['system'],
             text=text.replace('\n', '\n\t'),
         )
-
-        # Print to the terminal
-        try:
-            color = LOG_LEVEL_COLORS[level]
-        except KeyError:
-            color = LOG_LEVEL_COLORS[logging.INFO]
-        self.shell_service.add_log_line(line, color)
         '''
 
 
@@ -569,8 +559,8 @@ class TrivialFileTransport(asyncio.Transport):
 
 
 # TODO standardize what these look like
-class ShellDialect:
-    def __init__(self, loop):
+class ShellClient:
+    def __init__(self, loop, network):
         self.loop = loop
 
         # TODO it would be nice to parametrize these (or even accept arbitrary
@@ -579,13 +569,15 @@ class ShellDialect:
         self.stdin = sys.stdin
         self.stdout = sys.stdout
 
-    def schedule_start(self):
-        asyncio.async(self.start(), loop=self.loop)
+        self.event_queue = Queue(loop=loop)
 
     @asyncio.coroutine
-    def start(self):
+    def connect(self):
         protocol = UrwidTerminalProtocol(DywypiShell, self.loop)
         self.transport = TrivialFileTransport(self.loop, self.stdin, self.stdout, protocol)
 
-def initialize(loop):
-    yield from ShellDialect(loop).start()
+    @asyncio.coroutine
+    def read_event(self):
+        # For now, this will never ever do anything.
+        # TODO this sure looks a lot like IRCClient
+        return (yield from self.event_queue.get())

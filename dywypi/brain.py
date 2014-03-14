@@ -60,7 +60,7 @@ class Brain:
         # TODO less hard-coded here would be nice
         clients = []
         for network in self.networks.values():
-            clients.append(IRCClient(loop, network))
+            clients.append(network.client_class(loop, network))
 
         # TODO gracefully handle failed connections, and only bail entirely if
         # they all fail?
@@ -104,7 +104,14 @@ class Brain:
     def add_adhoc_connection(self, uristr):
         uri = urlparse(uristr)
 
-        if uri.scheme not in ('irc', 'ircs'):
+        # TODO dying for some registration here.
+        if uri.scheme in ('irc', 'ircs'):
+            client_class = IRCClient
+        elif uri.scheme in ('shell',):
+            # TODO import down here in case no urwid
+            from dywypi.dialect.shell import ShellClient
+            client_class = ShellClient
+        else:
             raise ValueError(
                 "Don't know how to handle protocol {}: {}"
                 .format(uri.scheme, uri)
@@ -138,4 +145,6 @@ class Brain:
             channel_name = uri.path.lstrip('/')
             network.add_autojoin(channel_name)
 
+        # TODO uhh yeah i don't know about any of this.
+        network.client_class = client_class
         self.add_network(network)
