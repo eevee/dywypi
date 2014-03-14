@@ -12,9 +12,11 @@ cd dywypi
 python setup.py develop
 ```
 
-## Starting the Server
+## Starting the bot
 
-To start the server run `python -m dywypi ircs://<nick>:<password>@<site> <channel>`, for example: `python -m dywpi ircs://atlas:hunter2@irc.example.com #example`.
+To start the bot run `python -m dywypi ircs://<nick>:<password>@<host>/<channel>`, for example: `python -m dywypi ircs://atlas:hunter2@irc.example.com/example`.
+
+By default, the bot doesn't load any plugins.  Pass one or more `-p <name>` to load plugins by name (or fully-qualified module name), or use `-p ALL` to load all detected plugins.
 
 ## Creating a Plugin
 
