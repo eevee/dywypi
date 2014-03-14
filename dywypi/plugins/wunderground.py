@@ -192,6 +192,7 @@ def get_data(cache, location, service, query, lifetime, recursed=False):
         cache[cache_key] = data
         return data
 
+
 def send_simple_forecast(data):
     weather_icons = dict(
         clear='☀',
@@ -225,6 +226,7 @@ def send_simple_forecast(data):
 
     return ' | '.join(parts)
 
+
 '''
 
 send_radar = (msg, location, data) ->
@@ -243,9 +245,11 @@ send_webcam = (msg, location, data) ->
 
 '''
 
+
 # quick normalization to reduce caching of redundant data
 def key_for(service, query):
     return "{}-{}".format(service, query.lower())
+
 
 # how long till our cached data expires?
 def ttl(data):
@@ -256,31 +260,40 @@ def ttl(data):
 
     return lifetime - (datetime.utcnow() - retrieved).total_seconds()
 
+
 def alternative_place(item):
     if item['country'] != 'US' or not item['state'] or not item['city']:
         return ''
 
     return "{}/{}".format(item['state'], item['city'])
 
+
 def underscore(string):
     return re.sub(r'\s', '_', string)
 
+
 '''
 url_shortener = (msg, url) ->
-	msg
-		.http("http://api.bitly.com/v3/shorten")
-		.query
-			login: process.env.HUBOT_BITLY_USERNAME
-			apiKey: process.env.HUBOT_BITLY_API_KEY
-			longUrl: url
-			format: "json"
-		.get() (err, res, body) ->
-			response = JSON.parse body
-			msg.send if response.status_code is 200 then response.data.url else response.status_txt
+    msg
+        .http("http://api.bitly.com/v3/shorten")
+        .query
+            login: process.env.HUBOT_BITLY_USERNAME
+            apiKey: process.env.HUBOT_BITLY_API_KEY
+            longUrl: url
+            format: "json"
+        .get() (err, res, body) ->
+            response = JSON.parse body
+            msg.send if response.status_code is 200 then response.data.url else response.status_txt
 '''
 
-class NoAPIKey(Exception): pass
 
-class AmbiguousLocation(Exception): pass
+class NoAPIKey(Exception):
+    pass
 
-class ServerReportedError(Exception): pass
+
+class AmbiguousLocation(Exception):
+    pass
+
+
+class ServerReportedError(Exception):
+    pass
