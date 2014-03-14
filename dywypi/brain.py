@@ -16,43 +16,6 @@ from dywypi.state import Server
 log = logging.getLogger(__name__)
 
 
-
-class parser_action:
-    """Decorator that turns a method into a callable argparse `Action`.
-
-    argparse assumes whatever you give it as an action is an `Action` subclass,
-    which it then instantiates, and then calls some number of times.
-
-    The goal here is to transparently create that subclass so you can write an
-    action handler like so:
-
-        @parser_action
-        def handle_some_argument(self, action, parser, ns, vals, option=None):
-            self.do_a_thing(vals)
-
-    Note that the action object has been jammed in as the second argument.
-    """
-    def __init__(self, method):
-        self.method = method
-
-    def __get__(self, instance, owner):
-        if instance is None:
-            return self
-
-        # This is where the `self` passed to the original function comes from
-        return partial(self, instance)
-
-    def __call__(self, instance, *args, **kwargs):
-        # Note that we get called once by argparse to "instantiate" the Action,
-        # and the resulting object is called to actually do the work.
-        # So this function should only return the instance.
-        class InnerAction(argparse.Action):
-            def __call__(action, *args, **kwargs):
-                self.method(instance, action, *args, **kwargs)
-
-        return InnerAction(*args, **kwargs)
-
-
 class Brain:
     """Central nervous system of the bot.  Handles initial configuration,
     plugin discovery, initial connections, and all that fun stuff.
@@ -68,12 +31,21 @@ class Brain:
         self.plugin_manager.scan_package('dywypi_plugins')
 
         parser = self.build_parser()
-        # The returned namespace should be junk, since arguments all have
-        # actions that configure the brain immediately
-        parser.parse_args(argv)
+        ns = parser.parse_args(argv)
 
-        # Load everything
-        self.plugin_manager.loadall()
+        for uristr in ns.adhoc_connections:
+            self.add_adhoc_connection(uristr)
+
+        if not ns.plugin:
+            pass
+        elif 'ALL' in ns.plugin:
+            self.plugin_manager.loadall()
+        else:
+            for plugin_name in ns.plugin:
+                if '.' in plugin_name:
+                    self.plugin_manager.loadmodule(plugin_name)
+                else:
+                    self.plugin_manager.load(plugin_name)
 
     def run(self, loop):
         asyncio.async(self._run(loop), loop=loop)
@@ -117,47 +89,49 @@ class Brain:
 
     def build_parser(self):
         p = argparse.ArgumentParser()
-        p.add_argument('adhoc_connections', nargs='*', action=self.add_adhoc_connections)
+        p.add_argument('adhoc_connections', nargs='+', action='store',
+            help='URIs defining where to connect initially.')
+        p.add_argument('-p', '--plugin', action='append',
+            help='Load a plugin by name or module.  '
+                'Specify ALL to auto-load all detected plugins.')
 
         return p
 
-    @parser_action
-    def add_adhoc_connections(self, action, parser, ns, vals, option=None):
-        for uri in vals:
-            uriobj = urlparse(uri)
+    def add_adhoc_connection(self, uristr):
+        uri = urlparse(uristr)
 
-            if uriobj.scheme not in ('irc', 'ircs'):
-                raise ValueError(
-                    "Don't know how to handle protocol {}: {}"
-                    .format(uriobj.scheme, uri)
-                )
-
-            # Try to guess a network name based on the host
-            host = uriobj.hostname
-            # TODO handle IPs?  and have some other kind of ultimate fallback?
-            parts = host.split('.')
-            # TODO this doesn't work for second-level like .co.jp
-            if len(parts) > 1:
-                name = parts[-2]
-            else:
-                name = parts[0]
-
-            # TODO hmm should this stuff be delegated to a dialect?  some of it may
-            # not make sense for some dialects
-            network = Network(name)
-            if uriobj.username:
-                network.add_preferred_nick(uriobj.username)
-
-            # TODO lol this tls hack is so bad.
-            network.add_server(
-                uriobj.hostname,
-                uriobj.port,
-                tls=uriobj.scheme.endswith('s'),
-                password=uriobj.password,
+        if uri.scheme not in ('irc', 'ircs'):
+            raise ValueError(
+                "Don't know how to handle protocol {}: {}"
+                .format(uri.scheme, uri)
             )
 
-            if uriobj.path:
-                channel_name = uriobj.path.lstrip('/')
-                network.add_autojoin(channel_name)
+        # Try to guess a network name based on the host
+        host = uri.hostname
+        # TODO handle IPs?  and have some other kind of ultimate fallback?
+        parts = host.split('.')
+        # TODO this doesn't work for second-level like .co.jp
+        if len(parts) > 1:
+            name = parts[-2]
+        else:
+            name = parts[0]
 
-            self.add_network(network)
+        # TODO hmm should this stuff be delegated to a dialect?  some of it may
+        # not make sense for some dialects
+        network = Network(name)
+        if uri.username:
+            network.add_preferred_nick(uri.username)
+
+        # TODO lol this tls hack is so bad.
+        network.add_server(
+            uri.hostname,
+            uri.port,
+            tls=uri.scheme.endswith('s'),
+            password=uri.password,
+        )
+
+        if uri.path:
+            channel_name = uri.path.lstrip('/')
+            network.add_autojoin(channel_name)
+
+        self.add_network(network)

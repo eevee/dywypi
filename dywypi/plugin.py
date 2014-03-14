@@ -76,9 +76,26 @@ class PluginManager:
 
     def loadall(self):
         for name, plugin in BasePlugin._known_plugins.items():
-            plugin.start()
-            log.info("Loaded plugin {}".format(name))
-            self.loaded_plugins[name] = plugin
+            self.load(name)
+
+    def load(self, plugin_name):
+        if plugin_name in self.loaded_plugins:
+            return
+        # TODO keyerror
+        plugin = BasePlugin._known_plugins[plugin_name]
+        plugin.start()
+        log.info("Loaded plugin {}".format(plugin.name))
+        self.loaded_plugins[plugin.name] = plugin
+
+    def loadmodule(self, modname):
+        # This is a little chumptastic, but: figure out which plugins a module
+        # adds by comparing the list of known plugins before and after.
+        before_plugins = set(BasePlugins._known_plugins)
+        importlib.import_module(modname)
+        after_plugins = set(BasePlugins._known_plugins)
+
+        for plugin_name in after_plugins - before_plugins:
+            self.load(plugin_name)
 
     def _wrap_event(self, event, plugin):
         return EventWrapper(event, self.plugin_data[plugin])
