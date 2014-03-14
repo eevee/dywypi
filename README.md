@@ -11,7 +11,7 @@ dywypi requires at least Python 3.3 — it's based on the `asyncio` library, whi
 dywypi has not yet had a stable release, so you must install it from git.  (You may wish to do this from a virtualenv.)
 
 ```
-pip install [--user] git+https://github.com/eevee/dywypi.git
+pip install [--user] 'git+https://github.com/eevee/dywypi.git#egg=dywypi'
 ```
 
 ## Starting the bot
