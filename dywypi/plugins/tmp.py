@@ -14,3 +14,9 @@ def names(event):
         return
 
     yield from event.reply("Got some users: {!r}".format(event.channel.users))
+
+
+@plugin.command('getnames')
+def names(event):
+    names = yield from event.client.names(event.args[0])
+    yield from event.reply("names returned: {!r}".format(names))

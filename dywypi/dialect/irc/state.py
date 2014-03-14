@@ -15,6 +15,8 @@ class IRCChannel:
         self.name = name
         self.key = key
         self.users = {}
+        self.topic = None
+        self.sync = False
 
     def add_user(self, user, modes=()):
         self.users[user.name] = user, set(modes)

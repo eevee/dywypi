@@ -22,9 +22,15 @@ class IRCClient:
         self.network = network
 
         self.joined_channels = {}  # name => Channel
-        self.pending_joins = {}
-        self.pending_channels = {}
-        self.pending_names = {}
+
+        # Various intermediate state used for waiting for replies and
+        # aggregating multi-part replies
+        # TODO hmmm so what happens if state just gets left here forever?  do
+        # we care?
+        self._pending_names = {}
+        self._names_futures = {}
+        self._pending_topics = {}
+        self._join_futures = {}
 
         self.event_queue = Queue(loop=loop)
 
@@ -122,57 +128,55 @@ class IRCClient:
         # Topic.  Sent when joining or when requesting the topic.
         # TODO this doesn't handle the "requesting" part
         # TODO what if me != me?
-        me, channel, topic = message.args
-        if channel in self.pending_channels:
-            self.pending_channels[channel]['topic'] = topic
+        me, channel_name, topic_text = message.args
+        self._pending_topics[channel_name] = IRCTopic(topic_text)
 
     def _handle_RPL_TOPICWHOTIME(self, message):
         # Topic author (NONSTANDARD).  Sent after RPL_TOPIC.
+        # Unfortunately, there's no way to know whether to expect this.
         # TODO this doesn't handle the "requesting" part
         # TODO what if me != me?
-        me, channel, author, timestamp = message.args
-        if channel in self.pending_channels:
-            self.pending_channels[channel]['topic_author'] = Peer.from_prefix(author)
-            self.pending_channels[channel]['topic_timestamp'] = datetime.utcfromtimestamp(int(timestamp))
+        me, channel_name, author, timestamp = message.args
+        topic = self._pending_topics.setdefault(channel_name, IRCTopic(''))
+        topic.author = Peer.from_prefix(author)
+        topic.timestamp = datetime.utcfromtimestamp(int(timestamp))
 
     def _handle_RPL_NAMREPLY(self, message):
         # Names response.  Sent when joining or when requesting a names
         # list.  Must be ended with a RPL_ENDOFNAMES.
-        me, equals_sign_for_some_reason, channel, *raw_names = message.args
+        me, useless_equals_sign, channel_name, *raw_names = message.args
+        # List of names is actually optional (?!)
         if raw_names:
             raw_names = raw_names[0]
         else:
             raw_names = ''
-        # TODO modes
-        # TODO this doesn't handle the "requesting" part
-        # TODO how does this work if it's responding to /names and there'll
-        # be multiple lines?
+
         names = raw_names.strip(' ').split(' ')
-        # TODO these can't BOTH be true at the same time
-        if channel in self.pending_channels:
-            self.pending_channels[channel]['names'] = names
+        namelist = self._pending_names.setdefault(channel_name, [])
+        # TODO modes?  should those be stripped off here?
+        # TODO for that matter should these become peers here?
+        namelist.extend(names)
 
     def _handle_RPL_ENDOFNAMES(self, message):
         # End of names list.  Sent at the very end of a join or the very
         # end of a NAMES request.
         me, channel_name, info = message.args
-        if channel_name in self.pending_channels:
-            # Join synchronized!
-            if channel_name in self.joined_channels:
-                channel = self.joined_channels[channel_name]
-            else:
-                channel = IRCChannel(channel_name, None)
-            p = self.pending_channels.pop(channel_name, {})
-            # We don't receive a RPL_TOPIC if the topic has never been set
-            if 'topic' in p:
-                channel.topic = IRCTopic(
-                    p['topic'],
-                    # These are nonstandard and thus optional
-                    p.get('topic_author'),
-                    p.get('topic_timestamp'),
-                )
+        namelist = self._pending_names.pop(channel_name, [])
 
-            for name in p.get('names', ()):
+        if channel_name in self._names_futures:
+            # TODO we should probably not ever have a names future AND a
+            # pending join at the same time.  or, does it matter?
+            self._names_futures[channel_name].set_result(namelist)
+            del self._names_futures[channel_name]
+
+        if channel_name in self.joined_channels:
+            # Join synchronized!
+            channel = self.joined_channels[channel_name]
+            channel.sync = True
+
+            channel.topic = self._pending_topics.pop(channel_name, None)
+
+            for name in namelist:
                 modes = set()
                 # TODO use features!
                 while name and name[0] in '+%@&~':
@@ -186,19 +190,10 @@ class IRCClient:
 
                 channel.add_user(peer, modes)
 
-            if channel_name in self.pending_joins:
-                # Record the join
-                self.joined_channels[channel_name] = channel
-
+            if channel_name in self._join_futures:
                 # Update the Future
-                self.pending_joins[channel_name].set_result(channel)
-                del self.pending_joins[channel_name]
-
-            elif channel_name in self.pending_names:
-                # TODO these should not EVER both be true at once;
-                # rearchitect to enforce that
-                self.pending_names[channel_name].set_result(channel.names)
-                del self.pending_names[channel_name]
+                self._join_futures[channel_name].set_result(channel)
+                del self._join_futures[channel_name]
 
     def _handle_PRIVMSG(self, message):
         event = Message(self, message)
@@ -216,30 +211,39 @@ class IRCClient:
 
     # Implementations of particular commands
 
-    def join(self, channel, key=None):
+    def join(self, channel_name, key=None):
         """Coroutine that joins a channel, and nonblocks until the join is
         "synchronized" (defined as receiving the nick list).
         """
+        if channel_name in self._join_futures:
+            return self._join_futures[channel_name]
+
         # TODO multiple?  error on commas?
         if key is None:
-            self.proto.send_message('JOIN', channel)
+            self.proto.send_message('JOIN', channel_name)
         else:
-            self.proto.send_message('JOIN', channel, key)
+            self.proto.send_message('JOIN', channel_name, key)
 
-        # The good stuff is done by read_message, above...
+        # Clear out any lingering names list
+        self._pending_names[channel_name] = []
 
-        self.pending_channels[channel] = {}
-        fut = asyncio.Future()
-        self.pending_joins[channel] = fut
+        # Return a Future, to be populated by the message loop
+        fut = self._join_futures[channel_name] = asyncio.Future()
         return fut
 
-    def names(self, channel):
+    def names(self, channel_name):
         """Coroutine that returns a list of names in a channel."""
-        self.proto.send_message('NAMES', channel)
+        self.proto.send_message('NAMES', channel_name)
 
-        self.pending_channels[channel] = {}
-        fut = asyncio.Future()
-        self.pending_names[channel] = fut
+        # No need to do the same thing twice
+        if channel_name in self._names_futures:
+            return self._names_futures[channel_name]
+
+        # Clear out any lingering names list
+        self._pending_names[channel_name] = []
+
+        # Return a Future, to be populated by the message loop
+        fut = self._names_futures[channel_name] = asyncio.Future()
         return fut
 
     def set_topic(self, channel, topic):

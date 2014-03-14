@@ -69,9 +69,9 @@ class IRCMessage:
     class deals only with strings, not bytes.  Decode elsewhere, thanks.
     """
     def __init__(self, command, *args, prefix=None):
-        if command in NUMERICS:
+        if command.isdigit():
             # TODO command can't be a number when coming from a client
-            self.command = NUMERICS[command]
+            self.command = NUMERICS.get(command, command)
             self.numeric = command
         else:
             self.command = command
@@ -86,9 +86,14 @@ class IRCMessage:
         if self.prefix:
             prefix = " via {}".format(self.prefix)
 
+        if self.numeric and self.numeric != self.command:
+            command = "{}/{}".format(self.numeric, self.command)
+        else:
+            command = self.command
+
         return "<{name}: {command} {args}{prefix}>".format(
             name=type(self).__name__,
-            command=self.command,
+            command=command,
             args=', '.join(repr(arg) for arg in self.args),
             prefix=prefix,
         )
