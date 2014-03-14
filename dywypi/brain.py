@@ -41,7 +41,11 @@ class Brain:
         elif 'ALL' in ns.plugin:
             self.plugin_manager.loadall()
         else:
+            # Always load the core plugin
+            self.plugin_manager.load(core)
             for plugin_name in ns.plugin:
+                # TODO this should probably take a fqn to a /plugin/ not to a
+                # module?
                 if '.' in plugin_name:
                     self.plugin_manager.loadmodule(plugin_name)
                 else:

@@ -14,10 +14,11 @@ class EventWrapper:
     methods like `reply`.  All other attributes are delegated to the real
     event.
     """
-    def __init__(self, event, plugin_data):
+    def __init__(self, event, plugin_data, plugin_manager):
         self.event = event
         self.type = type(event)
         self.plugin_data = plugin_data
+        self._plugin_manager = plugin_manager
 
     @property
     def data(self):
@@ -98,20 +99,31 @@ class PluginManager:
             self.load(plugin_name)
 
     def _wrap_event(self, event, plugin):
-        return EventWrapper(event, self.plugin_data[plugin])
+        return EventWrapper(event, self.plugin_data[plugin], self)
 
     def _fire(self, event):
         for plugin in self.loaded_plugins.values():
             wrapped = self._wrap_event(event, plugin)
             plugin.fire(wrapped)
 
-    def _fire_command(self, command_event):
+    def _fire_global_command(self, command_event):
         # TODO well this could be slightly more efficient
         # TODO should also mention when no command exists
-        log.info(command_event)
         for plugin in self.loaded_plugins.values():
             wrapped = self._wrap_event(command_event, plugin)
-            plugin.fire_command(wrapped)
+            plugin.fire_command(wrapped, is_global=True)
+
+    def _fire_plugin_command(self, plugin_name, command_event):
+        # TODO should DEFINITELY complain when plugin OR command doesn't exist
+        try:
+            plugin = self.loaded_plugins[plugin_name]
+        except KeyError:
+            raise
+            # TODO
+            #raise SomeExceptionThatGetsSentAsAReply(...)
+
+        wrapped = self._wrap_event(command_event, plugin)
+        plugin.fire_command(wrapped, is_global=False)
 
     def fire(self, event):
         self._fire(event)
@@ -135,18 +147,28 @@ class PluginManager:
                 except ValueError:
                     command_name, argstr = message.strip(), ''
 
+                plugin_name, _, command_name = command_name.rpartition('.')
                 command_event = Command.from_event(
                     event,
                     command_name=command_name,
                     argstr=argstr,
                 )
-                self._fire_command(command_event)
+                if plugin_name:
+                    self._fire_plugin_command(plugin_name, command_event)
+                else:
+                    self._fire_global_command(command_event)
             else:
                 # Regular public message.
                 self._fire(PublicMessage.from_event(event))
 
             # TODO: what about private messages that don't "look like"
             # commands?  what about "all" public messages?  etc?
+
+
+class PluginCommand:
+    def __init__(self, coro, *, is_global):
+        self.coro = coro
+        self.is_global = is_global
 
 
 class BasePlugin:
@@ -182,11 +204,12 @@ class Plugin(BasePlugin):
 
         return decorator
 
-    def command(self, command_name):
+    def command(self, command_name, *, is_global=True):
         def decorator(f):
             coro = asyncio.coroutine(f)
             # TODO collisions etc
-            self.commands[command_name] = coro
+            self.commands[command_name] = PluginCommand(
+                coro, is_global=is_global)
             return coro
         return decorator
 
@@ -197,9 +220,13 @@ class Plugin(BasePlugin):
             # them all in serial and nonblock until they're all done!
             asyncio.async(listener(event), loop=event.loop)
 
-    def fire_command(self, event):
+    def fire_command(self, event, *, is_global):
         if event.command_name in self.commands:
-            asyncio.async(self.commands[event.command_name](event), loop=event.loop)
+            command = self.commands[event.command_name]
+            # Don't execute if the command is local-only and this wasn't
+            # invoked with a prefix
+            if command.is_global or not is_global:
+                asyncio.async(command.coro(event), loop=event.loop)
 
     def start(self):
         # TODO need an onload hook or something?
