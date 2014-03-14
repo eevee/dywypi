@@ -42,7 +42,7 @@ class Brain:
             self.plugin_manager.loadall()
         else:
             # Always load the core plugin
-            self.plugin_manager.load(core)
+            self.plugin_manager.load('core')
             for plugin_name in ns.plugin:
                 # TODO this should probably take a fqn to a /plugin/ not to a
                 # module?
