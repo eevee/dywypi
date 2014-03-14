@@ -1,14 +1,36 @@
-from setuptools import setup, find_packages
+import sys
 
+from setuptools import setup, find_packages
+from setuptools.command.test import test as TestCommand
+
+
+# From py.test documentation: make `setup.py test` run py.test
+class PyTestCommand(TestCommand):
+    def finalize_options(self):
+        TestCommand.finalize_options(self)
+        self.test_args = []
+        self.test_suite = True
+
+    def run_tests(self):
+        # Can't import globally, as py.test might not yet be installed
+        import pytest
+        errno = pytest.main(self.test_args)
+        sys.exit(errno)
+
+
+# Fetch metadata from a module without risking importing __init__.py
+# TODO dywypi's __init__.py is empty so this might be unnecessary...
 about = {}
 with open("dywypi/__about__.py") as fp:
     exec(fp.read(), about)
 
-ASYNCIO_DEPENDENCY = "asyncio>=0.1.1"
 
-install_requires = [
-    ASYNCIO_DEPENDENCY,
-]
+# Only depend on asyncio if it's not in stdlib
+backport_deps = []
+if sys.version_info < (3, 4):
+    # 0.1.1 has a critical SSL fix, I believe
+    backport_deps.append('asyncio>=0.1.1')
+
 
 setup(
     name=about["__title__"],
@@ -38,5 +60,11 @@ setup(
 
     packages=find_packages(exclude=["tests", "tests.*"]),
 
-    install_requires=install_requires,
+    cmdclass=dict(
+        test=PyTestCommand,
+    ),
+    tests_require=['pytest>=2.5'],
+    install_requires=backport_deps + [
+        'aiohttp',
+    ],
 )

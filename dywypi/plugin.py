@@ -24,13 +24,14 @@ class EventWrapper:
     def data(self):
         return self.plugin_data
 
+    # TODO should this just be on Event?
     @asyncio.coroutine
     def reply(self, message):
         if self.event.channel:
             reply_to = self.event.channel.name
         else:
             reply_to = self.event.source.name
-        yield from self.event.client.send_message('PRIVMSG', reply_to, message)
+        yield from self.event.client.say(reply_to, message)
 
     def __getattr__(self, attr):
         return getattr(self.event, attr)
@@ -64,26 +65,32 @@ class PluginManager:
         self.loaded_plugins = {}
         self.plugin_data = defaultdict(dict)
 
+    @property
+    def known_plugins(self):
+        """Returns a dict mapping names to all known `Plugin` instances."""
+        return BasePlugin._known_plugins
+
     def scan_package(self, package='dywypi.plugins'):
         """Scans a Python package for in-process Python plugins."""
         pkg = importlib.import_module(package)
+        # TODO pkg.__path__ doesn't exist if pkg is /actually/ a module
         for finder, name, is_pkg in pkgutil.iter_modules(pkg.__path__, prefix=package + '.'):
             try:
-                finder.find_module(name).load_module(name)
+                importlib.import_module(name)
             except ImportError as exc:
                 log.error(
                     "Couldn't import plugin module {}: {}"
                     .format(name, exc))
 
     def loadall(self):
-        for name, plugin in BasePlugin._known_plugins.items():
+        for name, plugin in self.known_plugins.items():
             self.load(name)
 
     def load(self, plugin_name):
         if plugin_name in self.loaded_plugins:
             return
         # TODO keyerror
-        plugin = BasePlugin._known_plugins[plugin_name]
+        plugin = self.known_plugins[plugin_name]
         plugin.start()
         log.info("Loaded plugin {}".format(plugin.name))
         self.loaded_plugins[plugin.name] = plugin
@@ -91,9 +98,11 @@ class PluginManager:
     def loadmodule(self, modname):
         # This is a little chumptastic, but: figure out which plugins a module
         # adds by comparing the list of known plugins before and after.
-        before_plugins = set(BasePlugins._known_plugins)
+        # TODO lol this doesn't necessarily work if the module was already
+        # loaded.  this is dumb just allow scanning particular packages
+        before_plugins = set(self.known_plugins)
         importlib.import_module(modname)
-        after_plugins = set(BasePlugins._known_plugins)
+        after_plugins = set(self.known_plugins)
 
         for plugin_name in after_plugins - before_plugins:
             self.load(plugin_name)
@@ -110,6 +119,7 @@ class PluginManager:
         # TODO well this could be slightly more efficient
         # TODO should also mention when no command exists
         for plugin in self.loaded_plugins.values():
+            print("trying plugin", repr(plugin))
             wrapped = self._wrap_event(command_event, plugin)
             plugin.fire_command(wrapped, is_global=True)
 
@@ -153,6 +163,8 @@ class PluginManager:
                     command_name=command_name,
                     argstr=argstr,
                 )
+                log.debug('Firing command %r', command_event)
+                print('Firing command %r'% command_event)
                 if plugin_name:
                     self._fire_plugin_command(plugin_name, command_event)
                 else:
@@ -176,7 +188,12 @@ class BasePlugin:
 
     def __init__(self, name):
         if name in self._known_plugins:
-            raise NameError("Can't have two plugins named {}!".format(name))
+            raise NameError(
+                "Can't have two plugins named {}: {} versus {}"
+                .format(
+                    name,
+                    self.__module__,
+                    self._known_plugins[name].__module__))
 
         self.name = name
         self._known_plugins[name] = self

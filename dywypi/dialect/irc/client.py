@@ -83,6 +83,10 @@ class IRCClient:
 
         # TODO: handle disconnection, somehow.  probably affects a lot of
         # things.
+        # TODO kind of wish this weren't here, since the creation of the
+        # connection isn't inherently part of a client.  really it should be on
+        # the...  network, perhaps?  and there's no reason i shouldn't be able
+        # to "connect" to a unix socket or pipe or anywhere else that has data.
         _, self.proto = yield from self.loop.create_connection(
             lambda: IRCClientProtocol(
                 self.loop, self.network.preferred_nick, password=server.password),
@@ -283,6 +287,15 @@ class IRCClient:
 
 
     # Implementations of particular commands
+
+    # TODO should this be part of the general client interface, or should there
+    # be a separate thing that smooths out the details?
+    @asyncio.coroutine
+    def say(self, target, message):
+        """Coroutine that sends a message to a target, which may be either a
+        `Channel` or a `Peer`.
+        """
+        yield from self.send_message('PRIVMSG', target, message)
 
     def join(self, channel_name, key=None):
         """Coroutine that joins a channel, and nonblocks until the join is
