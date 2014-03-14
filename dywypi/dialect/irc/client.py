@@ -7,6 +7,7 @@ from dywypi.event import Message
 from dywypi.state import Peer
 from .protocol import IRCClientProtocol
 from .state import IRCChannel
+from .state import IRCMode
 from .state import IRCTopic
 
 
@@ -22,6 +23,24 @@ class IRCClient:
         self.network = network
 
         self.joined_channels = {}  # name => Channel
+
+        # IRC server features, as reported by ISUPPORT, with defaults taken
+        # from the RFC.
+        self.len_nick = 9
+        self.len_channel = 200
+        self.len_message = 510
+        # These lengths don't have limits mentioned in the RFC, so going with
+        # the smallest known values in the wild
+        self.len_kick = 80
+        self.len_topic = 80
+        self.len_away = 160
+        self.max_watches = 0
+        self.max_targets = 1
+        self.channel_types = set('#&')
+        self.channel_modes = {}  # TODO, haha.
+        self.channel_prefixes = {}  # TODO here too.  IRCMode is awkward.
+        self.network_title = self.network.name
+        self.features = {}
 
         # Various intermediate state used for waiting for replies and
         # aggregating multi-part replies
@@ -107,6 +126,60 @@ class IRCClient:
         handler = getattr(self, '_handle_' + message.command, None)
         if handler:
             handler(message)
+
+    def _handle_RPL_ISUPPORT(self, message):
+        me, *features, human_text = message.args
+        for feature_string in features:
+            feature, _, value = feature_string.partition('=')
+            if value is None:
+                value = True
+
+            self.features[feature] = value
+
+            if feature == 'NICKLEN':
+                self.len_nick = int(value)
+            elif feature == 'CHANNELLEN':
+                self.len_channel = int(value)
+            elif feature == 'KICKLEN':
+                self.len_kick = int(value)
+            elif feature == 'TOPICLEN':
+                self.len_topic = int(value)
+            elif feature == 'AWAYLEN':
+                self.len_away = int(value)
+            elif feature == 'WATCH':
+                self.max_watches = int(value)
+            elif feature == 'CHANTYPES':
+                self.channel_types = set(value)
+            elif feature == 'PREFIX':
+                # List of channel user modes, in relative priority order, in
+                # the format (ov)@+
+                assert value[0] == '('
+                letters, symbols = value[1:].split(')')
+                assert len(letters) == len(symbols)
+                self.channel_prefixes.clear()
+                for letter, symbol in zip(letters, symbols):
+                    mode = IRCMode(letter, prefix=symbol)
+                    self.channel_modes[letter] = mode
+                    self.channel_prefixes[symbol] = mode
+            elif feature == 'MAXTARGETS':
+                self.max_targets = int(value)
+            elif feature == 'CHANMODES':
+                # Four groups delimited by lists: list-style (+b), arg required
+                # (+k), arg required only to set (+l), argless
+                lists, args, argsets, argless = value.split(',')
+                for letter in lists:
+                    self.channel_modes[letter] = IRCMode(
+                        letter, multi=True)
+                for letter in args:
+                    self.channel_modes[letter] = IRCMode(
+                        letter, arg_on_set=True, arg_on_remove=True)
+                for letter in argsets:
+                    self.channel_modes[letter] = IRCMode(
+                        letter, arg_on_set=True)
+                for letter in argless:
+                    self.channel_modes[letter] = IRCMode(letter)
+            elif feature == 'NETWORK':
+                self.network_title = value
 
     def _handle_JOIN(self, message):
         channel_name, = message.args
