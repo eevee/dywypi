@@ -16,5 +16,4 @@ def echo(event):
 
 @plugin.command('echo')
 def echo2(event):
-    print("we got this far...")
     yield from event.reply(event.argstr)

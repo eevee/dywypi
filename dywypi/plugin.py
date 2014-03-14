@@ -119,7 +119,6 @@ class PluginManager:
         # TODO well this could be slightly more efficient
         # TODO should also mention when no command exists
         for plugin in self.loaded_plugins.values():
-            print("trying plugin", repr(plugin))
             wrapped = self._wrap_event(command_event, plugin)
             plugin.fire_command(wrapped, is_global=True)
 
@@ -164,7 +163,6 @@ class PluginManager:
                     argstr=argstr,
                 )
                 log.debug('Firing command %r', command_event)
-                print('Firing command %r'% command_event)
                 if plugin_name:
                     self._fire_plugin_command(plugin_name, command_event)
                 else:
