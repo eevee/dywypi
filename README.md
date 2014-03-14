@@ -2,25 +2,31 @@
 
 **dywypi** is an IRC bot you can extend with plugins.
 
+It also contains a simple IRC protocol implementation for `asyncio`, which can be used independently of the bot.
+
 ## Setup
 
-To run dywypi you will need at least Python 3.3 and the asyncio package. Once those are setup, you can install dywypi from the git repo. It is recommended to do this inside a virtualenv.
+dywypi requires at least Python 3.3 — it's based on the `asyncio` library, which uses the `yield from` syntax.
+
+dywypi has not yet had a stable release, so you must install it from git.  (You may wish to do this from a virtualenv.)
 
 ```
-git clone https://github.com/eevee/dywypi.git
-cd dywypi
-python setup.py develop
+pip install [--user] git+https://github.com/eevee/dywypi.git
 ```
 
 ## Starting the bot
 
 To start the bot run `python -m dywypi ircs://<nick>:<password>@<host>/<channel>`, for example: `python -m dywypi ircs://atlas:hunter2@irc.example.com/example`.
 
-By default, the bot doesn't load any plugins.  Pass one or more `-p <name>` to load plugins by name (or fully-qualified module name), or use `-p ALL` to load all detected plugins.
+Note that depending on your system, your Python 3 binary may be called `python3`.
 
-## Creating a Plugin
+By default, the bot doesn't load any plugins.  Pass one or more `-p <name>` to load plugins by name, or use `-p ALL` to load all detected plugins.
 
-Once dywypi is installed, you can create plugins in your own project. To do this, simply create a dywypi_plugins directory in the root of your project. Any plugin in that directory will be automatically loaded when you start dywypi.
+## Creating a plugin
+
+You _do not_ need to edit dywypi's codebase to create new plugins.  Instead, put your plugin modules in a `dywypi_plugins` directory.  Any module in the `dywypi_plugins.` namespace will be automatically discovered and scanned.  (Of course, you must still load your plugin with `-p <name>` or `-p ALL`.)
+
+**Don't** create a `dywypi_plugins/__init__.py`.  `dywypi_plugins` is a _namespace package_ (see [PEP 420](http://legacy.python.org/dev/peps/pep-0420/)) and should never contain an `__init__.py`.
 
 ### Example Plugin: Reverse
 
@@ -38,5 +44,13 @@ A conversation with a bot running the reverse plugin would look something like t
 
 ```
 <campaul> atlas: reverse foobar
-<atlas> raboof
+<atlas> campaul: raboof
 ```
+
+## Development
+
+You can install in "editable" mode by passing `-e` to `pip install`.
+
+The (currently rather small) test suite uses [pytest](http://pytest.org/latest/).  Run it with `py.test dywypi`.  Tox is also supported; you should be able to run `tox` to run the test suite with coverage support and also do a flake8 pass.
+
+Tickets and pull requests are welcome!
