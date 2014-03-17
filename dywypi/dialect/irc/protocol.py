@@ -47,6 +47,9 @@ class IRCClientProtocol(asyncio.Protocol):
     def handle_message(self, message):
         if message.command == 'PING':
             self.send_message('PONG', message.args[-1])
+
+        elif message.command == 'RPL_WELCOME':
+            # 001, first thing sent after registration
             if not self.registered:
                 self.registered = True
 

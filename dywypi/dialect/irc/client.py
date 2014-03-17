@@ -94,6 +94,8 @@ class IRCClient:
 
         while True:
             yield from self._read_message()
+            # TODO this is dumb garbage; more likely this client itself should
+            # just wait for 001/RPL_WELCOME.
             if self.proto.registered:
                 break
 
@@ -124,6 +126,11 @@ class IRCClient:
     def _read_message(self):
         """Internal dispatcher for messages received from the protocol."""
         message = yield from self.proto.read_message()
+
+        # TODO there is a general ongoing problem here with matching up
+        # responses.  ESPECIALLY when error codes are possible.  something here
+        # is gonna have to get a bit fancier.  maybe it should live at the
+        # protocol level, actually...?
 
         # Boy do I ever hate this pattern but it's slightly more maintainable
         # than a 500-line if tree.
@@ -257,7 +264,7 @@ class IRCClient:
                 modes = set()
                 # TODO use features!
                 while name and name[0] in '+%@&~':
-                    modes.append(name[0])
+                    modes.add(name[0])
                     name = name[1:]
 
                 # TODO haha no this is so bad.
