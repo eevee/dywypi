@@ -28,7 +28,11 @@ class Brain:
     def configure_from_argv(self, argv=None):
         # Scan for known plugins first
         self.plugin_manager.scan_package('dywypi.plugins')
-        self.plugin_manager.scan_package('dywypi_plugins')
+        try:
+            self.plugin_manager.scan_package('dywypi_plugins')
+        except ImportError:
+            # No local plugins; no sweat
+            pass
 
         parser = self.build_parser()
         ns = parser.parse_args(argv)

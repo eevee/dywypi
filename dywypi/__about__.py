@@ -4,13 +4,13 @@ __all__ = [
 ]
 
 __title__ = "dywypi"
-__summary__ = "yet another Python IRC bot. maybe this one won't suck"
-__uri__ = "http://bugs.veekun.com/projects/dywypi"
+__summary__ = "IRC bot and tools built atop asyncio"
+__uri__ = "https://github.com/eevee/dywypi"
 
 __version__ = "0.1.dev1"
 
 __author__ = ("Eevee")
-__email__ = "eevee@veekun.com"
+__email__ = "eevee.dywypi@veekun.com"
 
 __license__ = "ISC"
-__copyright__ = "Copyright 2013 %s" % __author__
+__copyright__ = "Copyright 2014 %s" % __author__

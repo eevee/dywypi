@@ -28,6 +28,7 @@ with open("dywypi/__about__.py") as fp:
 # Only depend on asyncio if it's not in stdlib
 backport_deps = []
 if sys.version_info < (3, 4):
+    backport_deps.append('enum34')
     # 0.1.1 has a critical SSL fix, I believe
     backport_deps.append('asyncio>=0.1.1')
 
@@ -39,6 +40,8 @@ setup(
     description=about["__summary__"],
     license=about["__license__"],
     url=about["__uri__"],
+
+    long_description="Please see the project GitHub for README and docs.",
 
     author=about["__author__"],
     author_email=about["__email__"],
@@ -55,10 +58,11 @@ setup(
         "Programming Language :: Python",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.3",
+        "Programming Language :: Python :: 3.4",
         "Programming Language :: Python :: Implementation :: CPython",
     ],
 
-    packages=find_packages(exclude=["tests", "tests.*"]),
+    packages=find_packages(exclude=["dywypi.tests", "dywypi.tests.*"]),
 
     cmdclass=dict(
         test=PyTestCommand,
