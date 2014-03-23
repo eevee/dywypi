@@ -3,8 +3,10 @@ __pycache__/
 _build/
 .tox/
 .cache/
+.ropeproject/
 *.egg-info/
 .coverage
 dist
 htmlcov
 .*.sw*
+.sw*
