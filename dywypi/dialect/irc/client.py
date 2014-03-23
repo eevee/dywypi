@@ -15,12 +15,20 @@ from .state import IRCTopic
 FOREGROUND_CODES = {
     Color.white: '\x0300',
     Color.black: '\x0301',
-    Color.blue: '\x0302',
+    Color.navy: '\x0302',
     Color.green: '\x0303',
     Color.red: '\x0304',
-    Color.yellow: '\x0305',
+    Color.darkred: '\x0305',
     Color.purple: '\x0306',
-    Color.cyan: '\x0310',
+    Color.brown: '\x0307',  # actually orange, close enough
+    Color.yellow: '\x0308',
+    Color.lime: '\x0309',
+    Color.teal: '\x0310',
+    Color.cyan: '\x0311',
+    Color.blue: '\x0312',
+    Color.magenta: '\x0313',
+    Color.darkgray: '\x0314',
+    Color.gray: '\x0315',
 }
 
 

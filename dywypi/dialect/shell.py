@@ -561,19 +561,31 @@ class TrivialFileTransport(asyncio.Transport):
 
 
 FOREGROUND_CODES = {
-    Color.black: '\x1b[30m',
-    Color.red: '\x1b[31m',
-    Color.green: '\x1b[32m',
-    Color.yellow: '\x1b[33m',
-    Color.blue: '\x1b[34m',
-    Color.purple: '\x1b[35m',
-    Color.cyan: '\x1b[36m',
-    Color.white: '\x1b[37m',
-    Color.default: '\x1b[39m',
+    Color.default: '39',
+
+    Color.black: '30',
+    Color.red: '31',
+    Color.green: '32',
+    Color.brown: '33',
+    Color.blue: '34',
+    Color.purple: '35',
+    Color.teal: '36',
+    Color.gray: '37',
+
+    # Bright colors use aixterm sequences, which are nonstandard, but work
+    # virtually everywhere in practice
+    Color.darkgray: '90',
+    Color.red: '91',
+    Color.lime: '92',
+    Color.yellow: '93',
+    Color.blue: '94',
+    Color.magenta: '95',
+    Color.cyan: '96',
+    Color.white: '97',
 }
 BOLD_CODES = {
-    Bold.on: '\x1b[1m',
-    Bold.off: '\x1b[22m',
+    Bold.on: '1',
+    Bold.off: '22',
 }
 
 
@@ -606,15 +618,16 @@ class ShellClient:
         return (yield from self.event_queue.get())
 
     def format_transition(self, current_style, new_style):
+        # TODO wait lol shouldn't this be converting to urwid-style tuples
         if new_style == Style.default():
             # Just use the reset sequence
             return '\x1b[0m'
 
-        ret = ''
+        ansi_codes = []
         if new_style.fg != current_style.fg:
-            ret += FOREGROUND_CODES[new_style.fg]
+            ansi_codes.append(FOREGROUND_CODES[new_style.fg])
 
         if new_style.bold != current_style.bold:
-            ret += BOLD_CODES[new_style.bold]
+            ansi_codes.append(BOLD_CODES[new_style.bold])
 
-        return ret
+        return '\x1b[' + ';'.join(ansi_codes) + 'm'

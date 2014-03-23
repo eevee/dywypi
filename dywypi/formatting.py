@@ -57,14 +57,25 @@ class Style:
 
 # TODO no idea how background works here haha.
 class Color(Enum):
+    """The sixteen basic terminal/IRC/etc. colors, plus "default" to mean the
+    recipient's default colors.
+    """
     default = 'default'
 
     black = 'black'
     blue = 'blue'
+    brown = 'brown'
     cyan = 'cyan'
+    darkgray = 'darkgray'
+    darkred = 'darkred'
+    gray = 'gray'
     green = 'green'
+    lime = 'lime'
+    magenta = 'magenta'
+    navy = 'navy'
     purple = 'purple'
     red = 'red'
+    teal = 'teal'
     white = 'white'
     yellow = 'yellow'
 
