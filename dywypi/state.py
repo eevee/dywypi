@@ -1,3 +1,4 @@
+import asyncio
 import getpass
 import logging
 
@@ -48,6 +49,7 @@ class Network:
 
 
 class Server:
+    # TODO this is TCP only...
     def __init__(self, host, port, tls, password):
         self.host = host
         self.port = port
@@ -55,6 +57,16 @@ class Server:
         # TODO wait is this per-server or per-network
         self.password = password
 
+    def connect(self, loop):
+        """Return a coroutine that, when yield from'd, will connect to this
+        server and produce a tuple of (reader, writer) streams.
+        """
+        return asyncio.open_connection(
+            host=self.host,
+            port=self.port,
+            ssl=self.tls,
+            loop=loop,
+        )
 
 class Peer:
     def __init__(self, name, ident, host, *, is_server=False):
