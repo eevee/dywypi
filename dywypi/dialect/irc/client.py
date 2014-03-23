@@ -108,10 +108,8 @@ class IRCClient:
         # connection isn't inherently part of a client.  really it should be on
         # the...  network, perhaps?  and there's no reason i shouldn't be able
         # to "connect" to a unix socket or pipe or anywhere else that has data.
-        _, self.proto = yield from self.loop.create_connection(
-            lambda: IRCClientProtocol(
-                self.loop, self.network.preferred_nick, password=server.password),
-            server.host, server.port, ssl=server.tls)
+        self.proto = yield from IRCClientProtocol.connect_tcp(
+            self.loop, self.network.preferred_nick, server)
 
         while True:
             yield from self._read_message()
@@ -133,7 +131,9 @@ class IRCClient:
     @asyncio.coroutine
     def disconnect(self):
         self.proto.send_message('QUIT', 'Seeya!')
-        self.proto.transport.close()
+        yield from self.proto.writer.drain()
+        self.proto.writer.close()
+        # TODO wait until reader gets eof?
 
     @asyncio.coroutine
     def _advance(self):

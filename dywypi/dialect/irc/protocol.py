@@ -3,10 +3,10 @@ from asyncio.queues import Queue
 import logging
 import re
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
-class IRCClientProtocol(asyncio.Protocol):
+class IRCClientProtocol(object):
     """Low-level protocol that speaks the client end of IRC.
 
     This isn't responsible for very much besides the barest minimum definition
@@ -14,37 +14,56 @@ class IRCClientProtocol(asyncio.Protocol):
 
     You probably want `read_message`, or the higher-level client class.
     """
-    def __init__(self, loop, nick, password, charset='utf8'):
+    def __init__(self, loop, nick, reader, writer, *, charset='utf8'):
         self.nick = nick
-        self.password = password
         self.charset = charset
 
-        self.buf = b''
+        self.loop = loop
+        self.reader = reader
+        self.writer = writer
+
         self.message_queue = Queue(loop=loop)
         self.registered = False
 
-    def connection_made(self, transport):
-        self.transport = transport
-        if self.password:
-            self.send_message('PASS', self.password)
-        self.send_message('NICK', self.nick)
+    @classmethod
+    @asyncio.coroutine
+    def connect_tcp(cls, loop, nick, server, *, charset='utf8'):
+        reader, writer = yield from asyncio.open_connection(
+            host=server.host,
+            port=server.port,
+            ssl=server.tls,
+            loop=loop,
+        )
+
+        self = cls(loop, nick, reader, writer, charset=charset)
+
+        # TODO these need doing no matter what the transport
+        if server.password:
+            self.send_message('PASS', server.password)
+        self.send_message('NICK', nick)
         self.send_message('USER', 'dywypi', '-', '-', 'dywypi Python IRC bot')
 
-    def data_received(self, data):
-        data = self.buf + data
-        while True:
-            raw_message, delim, data = data.partition(b'\r\n')
-            if not delim:
-                # Incomplete message; stop here and wait for more
-                self.buf = raw_message
-                return
+        return self
 
-            # TODO valerr
-            message = IRCMessage.parse(raw_message.decode(self.charset))
-            logger.debug("recv: %r", message)
-            self.handle_message(message)
+    def send_message(self, command, *args):
+        message = IRCMessage(command, *args)
+        log.debug("sent: %r", message)
+        self.writer.write(message.render().encode(self.charset) + b'\r\n')
 
-    def handle_message(self, message):
+    @asyncio.coroutine
+    def read_message(self):
+        line = yield from self.reader.readline()
+        assert line.endswith(b'\r\n')
+        line = line[:-2]
+        # TODO valerr, unicodeerr
+        message = IRCMessage.parse(line.decode(self.charset))
+        log.debug("recv: %r", message)
+
+        # Some handling for extra-special messages
+        # TODO is there any reason these shouldn't be on the client?  actually,
+        # does the client still need to exist?
+        # TODO really really need to make sure PINGs are processed in a timely
+        # manner.  really.
         if message.command == 'PING':
             self.send_message('PONG', message.args[-1])
 
@@ -53,16 +72,7 @@ class IRCClientProtocol(asyncio.Protocol):
             if not self.registered:
                 self.registered = True
 
-        self.message_queue.put_nowait(message)
-
-    def send_message(self, command, *args):
-        message = IRCMessage(command, *args)
-        logger.debug("sent: %r", message)
-        self.transport.write(message.render().encode(self.charset) + b'\r\n')
-
-    @asyncio.coroutine
-    def read_message(self):
-        return (yield from self.message_queue.get())
+        return message
 
 
 class IRCMessage:
