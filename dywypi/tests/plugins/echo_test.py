@@ -1,6 +1,6 @@
 import asyncio
 
-from dywypi.dialect.irc.protocol import IRCMessage
+from dywypi.dialect.irc.message import IRCMessage
 from dywypi.event import Message
 from dywypi.plugin import PluginManager
 

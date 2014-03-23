@@ -8,7 +8,7 @@ import logging
 from dywypi.event import Message
 from dywypi.formatting import Bold, Color, Style
 from dywypi.state import Peer
-from .protocol import IRCMessage
+from .message import IRCMessage
 from .state import IRCChannel
 from .state import IRCMode
 from .state import IRCTopic
