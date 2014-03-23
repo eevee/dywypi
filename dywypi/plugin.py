@@ -31,6 +31,14 @@ class EventWrapper:
             reply_to = self.event.channel.name
         else:
             reply_to = self.event.source.name
+
+        # TODO uhoh, where does this guy belong...
+        # TODO and where does the formatting belong...  on a Dialect?  which is
+        # not yet a thing?
+        from dywypi.formatting import FormattedString
+        if isinstance(message, FormattedString):
+            # TODO this should probably be a method on the dialect actually...?
+            message = message.render(self.event.client.format_transition)
         yield from self.event.client.say(reply_to, message)
 
     def __getattr__(self, attr):

@@ -16,6 +16,7 @@ class DummyClient:
 
     def say(self, target, message):
         self.accumulated_messages.append((target, message))
+        yield
 
 
 def test_echo():

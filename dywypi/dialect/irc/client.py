@@ -4,11 +4,24 @@ from datetime import datetime
 import getpass
 
 from dywypi.event import Message
+from dywypi.formatting import Bold, Color, Style
 from dywypi.state import Peer
 from .protocol import IRCClientProtocol
 from .state import IRCChannel
 from .state import IRCMode
 from .state import IRCTopic
+
+
+FOREGROUND_CODES = {
+    Color.white: '\x0300',
+    Color.black: '\x0301',
+    Color.blue: '\x0302',
+    Color.green: '\x0303',
+    Color.red: '\x0304',
+    Color.yellow: '\x0305',
+    Color.purple: '\x0306',
+    Color.cyan: '\x0310',
+}
 
 
 class IRCClient:
@@ -346,3 +359,27 @@ class IRCClient:
     @asyncio.coroutine
     def send_message(self, command, *args):
         self.proto.send_message(command, *args)
+
+    def format_transition(self, current_style, new_style):
+        if new_style == Style.default():
+            # Reset code, ^O
+            return '\x0f'
+
+        if new_style.fg != current_style.fg and new_style.fg is Color.default:
+            # IRC has no "reset to default" code.  mIRC claims color 99 is for
+            # this, but it lies, at least in irssi.  So we must reset and
+            # reapply everything.
+            ret = '\x0f'
+            if new_style.bold is Bold.on:
+                ret += '\x02'
+            return ret
+
+        ret = ''
+        if new_style.fg != current_style.fg:
+            ret += FOREGROUND_CODES[new_style.fg]
+
+        if new_style.bold != current_style.bold:
+            # There's no on/off for bold, just a toggle
+            ret += '\x02'
+
+        return ret

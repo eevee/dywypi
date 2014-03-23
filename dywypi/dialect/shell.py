@@ -15,6 +15,8 @@ import sys
 import urwid
 from urwid.raw_display import Screen
 
+from dywypi.formatting import Bold, Color, Style
+
 logger = logging.getLogger(__name__)
 
 
@@ -558,6 +560,23 @@ class TrivialFileTransport(asyncio.Transport):
         self._outfile.close()
 
 
+FOREGROUND_CODES = {
+    Color.black: '\x1b[30m',
+    Color.red: '\x1b[31m',
+    Color.green: '\x1b[32m',
+    Color.yellow: '\x1b[33m',
+    Color.blue: '\x1b[34m',
+    Color.purple: '\x1b[35m',
+    Color.cyan: '\x1b[36m',
+    Color.white: '\x1b[37m',
+    Color.default: '\x1b[39m',
+}
+BOLD_CODES = {
+    Bold.on: '\x1b[1m',
+    Bold.off: '\x1b[22m',
+}
+
+
 # TODO standardize what these look like
 class ShellClient:
     def __init__(self, loop, network):
@@ -581,3 +600,17 @@ class ShellClient:
         # For now, this will never ever do anything.
         # TODO this sure looks a lot like IRCClient
         return (yield from self.event_queue.get())
+
+    def format_transition(self, current_style, new_style):
+        if new_style == Style.default():
+            # Just use the reset sequence
+            return '\x1b[0m'
+
+        ret = ''
+        if new_style.fg != current_style.fg:
+            ret += FOREGROUND_CODES[new_style.fg]
+
+        if new_style.bold != current_style.bold:
+            ret += BOLD_CODES[new_style.bold]
+
+        return ret

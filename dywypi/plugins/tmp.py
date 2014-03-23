@@ -20,3 +20,25 @@ def names(event):
 def names(event):
     names = yield from event.client.names(event.args[0])
     yield from event.reply("names returned: {!r}".format(names))
+
+
+@plugin.command('echo-color')
+def echo_color(event):
+    from dywypi.formatting import FormattedString, Color
+    n = len(event.argstr) // 2
+    yield from event.reply(FormattedString(Color.green(event.argstr[:n]), Color.purple(event.argstr[n:])))
+
+
+@plugin.command('rainbow')
+def rainbow(event):
+    from dywypi.formatting import FormattedString, Color
+    colors = [Color.red, Color.yellow, Color.green, Color.cyan, Color.blue, Color.purple]
+    chunks = []
+    pos0 = 0
+    string = event.argstr
+    for n, color in enumerate(colors):
+        pos = len(string) * (n + 1) // len(colors)
+        chunks.append(color(string[pos0:pos]))
+        pos0 = pos
+
+    yield from event.reply(FormattedString(*chunks))
