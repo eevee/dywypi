@@ -592,8 +592,12 @@ class ShellClient:
 
     @asyncio.coroutine
     def connect(self):
-        protocol = UrwidTerminalProtocol(DywypiShell, self.loop)
-        self.transport = TrivialFileTransport(self.loop, self.stdin, self.stdout, protocol)
+        self.protocol = UrwidTerminalProtocol(DywypiShell, self.loop)
+        self.transport = TrivialFileTransport(self.loop, self.stdin, self.stdout, self.protocol)
+
+    @asyncio.coroutine
+    def disconnect(self):
+        self.protocol.bridge.stop()
 
     @asyncio.coroutine
     def read_event(self):

@@ -57,7 +57,10 @@ class Brain:
 
     def run(self, loop):
         asyncio.async(self._run(loop), loop=loop)
-        loop.run_forever()
+        try:
+            loop.run_forever()
+        except (KeyboardInterrupt, SystemExit):
+            self.stop(loop)
 
     @asyncio.coroutine
     def _run(self, loop):
@@ -65,6 +68,10 @@ class Brain:
         clients = []
         for network in self.networks.values():
             clients.append(network.client_class(loop, network))
+
+        # TODO hmm this feels slightly janky; should this all be done earlier
+        # perhaps
+        self.current_clients = clients
 
         # TODO gracefully handle failed connections, and only bail entirely if
         # they all fail?
@@ -90,6 +97,28 @@ class Brain:
             for d in done:
                 event = yield from d
                 self.plugin_manager.fire(event)
+
+    def stop(self, loop):
+        """Disconnect all clients."""
+        # Someone pressed Ctrl-C or called sys.exit.  Try to shut down
+        # gracefully, but bail after 5s, or if we get KeyboardInterrupt a
+        # second time.
+        print("Waiting for connections to close...  (Ctrl-C to stop now)")
+        # TODO do i need to stop my own event loop somehow?
+        # TODO what happens if i try to disconnect while i'm still connecting?
+        # TODO should this also try to stop any scheduled events, or just let
+        # loop.close() take care of that?
+        stop_task = asyncio.Task(self._stop(loop))
+        timer = loop.call_later(5, stop_task.cancel)
+        try:
+            loop.run_until_complete(stop_task)
+        except KeyboardInterrupt:
+            pass
+        timer.cancel()
+
+    @asyncio.coroutine
+    def _stop(self, loop):
+        yield from asyncio.gather(*[client.disconnect() for client in self.current_clients])
 
     def add_network(self, network):
         # TODO check for dupes!
@@ -122,14 +151,15 @@ class Brain:
             )
 
         # Try to guess a network name based on the host
-        host = uri.hostname
-        # TODO handle IPs?  and have some other kind of ultimate fallback?
-        parts = host.split('.')
-        # TODO this doesn't work for second-level like .co.jp
-        if len(parts) > 1:
-            name = parts[-2]
-        else:
-            name = parts[0]
+        name = uristr
+        if uri.hostname:
+            # TODO handle IPs?  and have some other kind of ultimate fallback?
+            parts = uri.hostname.split('.')
+            # TODO this doesn't work for second-level like .co.jp
+            if len(parts) > 1:
+                name = parts[-2]
+            else:
+                name = parts[0]
 
         # TODO hmm should this stuff be delegated to a dialect?  some of it may
         # not make sense for some dialects
@@ -139,7 +169,7 @@ class Brain:
 
         # TODO lol this tls hack is so bad.
         network.add_server(
-            uri.hostname,
+            uri.hostname or 'localhost',
             uri.port,
             tls=uri.scheme.endswith('s'),
             password=uri.password,

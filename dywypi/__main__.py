@@ -11,6 +11,7 @@ if __name__ == '__main__':
     brain = Brain()
     brain.configure_from_argv()
     loop = asyncio.get_event_loop()
-    brain.run(loop)
-    #from dywypi.dialect.shell import initialize
-    #asyncio.async(initialize(loop), loop=loop)
+    try:
+        brain.run(loop)
+    finally:
+        loop.close()

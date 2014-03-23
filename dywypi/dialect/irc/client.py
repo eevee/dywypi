@@ -123,6 +123,11 @@ class IRCClient:
         ], loop=self.loop)
 
     @asyncio.coroutine
+    def disconnect(self):
+        self.proto.send_message('QUIT', 'Seeya!')
+        self.proto.transport.close()
+
+    @asyncio.coroutine
     def _advance(self):
         """Internal coroutine that just keeps the protocol message queue going.
         Called once after a connect and should never be called again after
