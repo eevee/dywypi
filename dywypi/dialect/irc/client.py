@@ -399,10 +399,20 @@ class IRCClient:
         """Sets the channel topic."""
         self.send_message('TOPIC', channel, topic)
 
+    # TODO unclear whether this stuff should be separate or what; it's less
+    # about the protocol and more about the dywypi interface
     def send_message(self, command, *args):
         message = IRCMessage(command, *args)
         log.debug("sent: %r", message)
         self._writer.write(message.render().encode(self.charset) + b'\r\n')
+
+    def source_from_message(self, raw_message):
+        """Produce a peer object of some sort, representing the sender of the
+        given message.
+        """
+        # TODO this should produce the same object every time really, but atm
+        # we don't keep users or servers catalogued
+        return Peer.from_prefix(self.raw_message.prefix)
 
     def format_transition(self, current_style, new_style):
         if new_style == Style.default():

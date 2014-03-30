@@ -20,7 +20,9 @@ import sys
 import urwid
 from urwid.raw_display import Screen
 
+from dywypi.event import Message
 from dywypi.formatting import Bold, Color, Style
+from dywypi.state import Peer
 
 logger = logging.getLogger(__name__)
 
@@ -294,10 +296,18 @@ class UrwidProtocol(asyncio.Protocol):
         self.start()
 
         self.log_handler = DywypiShellLoggingHandler(self)
-        dywypi_logger = logging.getLogger('dywypi')
-        dywypi_logger.addHandler(self.log_handler)
-        dywypi_logger.propagate = False
+        root_logger = logging.getLogger()
+        root_logger.addHandler(self.log_handler)
         # TODO remove handler shenanigans on connection lost
+
+    def _loop_exception_handler(self, loop, context):
+        if context.get('exception'):
+            try:
+                logger.exception(context['exception'])
+            except Exception as e:
+                import sys
+                sys.stderr.write(repr(context))
+                sys.stderr.write(repr(e))
 
     def data_received(self, data):
         """Pass keypresses to urwid's main loop, which knows how to handle
@@ -373,12 +383,23 @@ class DywypiShell(UrwidProtocol):
     """Creates a Twisted-friendly urwid app that allows interacting with dywypi
     via a shell.
     """
-    def __init__(self, *args, **kwargs):
-        #self.hub = kwargs.pop('hub')
-        super().__init__(*args, **kwargs)
 
-        # TODO does this need to be a real object?  a real Network instance?
-        self.network = object()
+    # TODO i don't think client.nick should really be part of the exposed
+    # interface; should be a .me returning a peer probably
+    # TODO for some reason this is the client even though the thing below is
+    # actually called a Client so we should figure this the fuck out
+    nick = 'dywypi'
+
+    def __init__(self, loop, network, *args, **kwargs):
+        super().__init__(loop, **kwargs)
+
+        self.event_queue = Queue(loop=self.loop)
+
+        self.network = network
+
+        self.me = Peer('dywypi', 'dywypi', 'localhost')
+        self.you = Peer('user', 'user', 'localhost')
+
 
     def build_toplevel_widget(self):
         self.pane = UnselectableListBox(urwid.SimpleListWalker([]))
@@ -401,6 +422,9 @@ class DywypiShell(UrwidProtocol):
             ('logging-warning', 'light red', 'default'),
             ('logging-error', 'dark red', 'default'),
             ('logging-critical', 'light magenta', 'default'),
+            ('shell-input', 'light gray', 'default'),
+            ('bot-output', 'default', 'default'),
+            ('bot-output-label', 'dark cyan', 'default'),
         ]
 
     def unhandled_input(self, key):
@@ -425,37 +449,79 @@ class DywypiShell(UrwidProtocol):
         # TODO generalize this color thing in a way compatible with irc, html, ...
         # TODO i super duper want this for logging, showing incoming/outgoing
         # messages in the right colors, etc!!
-        self.pane.body.append(urwid.Text((color, line.rstrip())))
+        self._print_text((color, line.rstrip()))
+
+    def _print_text(self, *encoded_text):
+        self.pane.body.append(urwid.Text(list(encoded_text)))
         self.pane.set_focus(len(self.pane.body) - 1)
         # TODO should this just mark dirty??
         self.urwid_loop.draw_screen()
 
     def handle_line(self, line):
         """Deal with a line of input."""
-        logger.info(line)
-
-        #from twisted.internet import defer
-        # XXX this is here cause it allows exceptions to actually be caught; be more careful with that in general
-        #defer.execute(self._handle_line, line)
+        try:
+            self._handle_line(line)
+        except Exception as e:
+            logger.exception(e)
 
     def _handle_line(self, line):
+        """All the good stuff happens here.
+
+        Various things happen depending on what the line starts with.
+
+        Colon: This is a command; pretend it was sent as a private message.
+        """
+        # Whatever it was, log it
+        self.pane.body.append(urwid.Text(['>>> ', ('shell-input', line)]))
+
         if line.startswith(':'):
             command_string = line[1:]
 
-            encoding = 'utf8'
-
-            from dywypi.event import EventSource
-            class wat(object): pass
-            peer = wat()
-            peer.name = None
-            source = EventSource(self.network, peer, None)
-
-            #self.hub.run_command_string(source, command_string.decode(encoding))
+            # TODO rather we didn't need raw_message...
+            raw_message = ShellMessage(self.me.name, command_string)
+            event = Message(self, raw_message)
+            self.event_queue.put_nowait(event)
 
     def _send_message(self, target, message, as_notice=True):
         # TODO cool color
         self.add_log_line(message)
 
+    # TODO split the client interface out from the protocol?
+    def source_from_message(self, raw_message):
+        """Produce a peer of some sort from a raw message."""
+        # TODO maybe a less dumb thing
+        return self.you
+
+    @asyncio.coroutine
+    def say(self, target, message):
+        # TODO target should probably be a peer, eh
+        if target == self.you.name:
+            prefix = "bot to you: "
+        else:
+            prefix = "bot to {}: ".format(target)
+        self._print_text(('bot-output-label', prefix), ('bot-output', message))
+
+    def format_transition(self, current_style, new_style):
+        # TODO wait lol shouldn't this be converting to urwid-style tuples
+        if new_style == Style.default():
+            # Just use the reset sequence
+            return '\x1b[0m'
+
+        ansi_codes = []
+        if new_style.fg != current_style.fg:
+            ansi_codes.append(FOREGROUND_CODES[new_style.fg])
+
+        if new_style.bold != current_style.bold:
+            ansi_codes.append(BOLD_CODES[new_style.bold])
+
+        return '\x1b[' + ';'.join(ansi_codes) + 'm'
+
+
+
+# TODO this shouldn't need to exist i think
+class ShellMessage:
+    def __init__(self, *args):
+        self.args = args
 
 LOG_LEVEL_COLORS = {
     logging.DEBUG: 'logging-debug',
@@ -524,6 +590,7 @@ BOLD_CODES = {
 class ShellClient:
     def __init__(self, loop, network):
         self.loop = loop
+        self.network = network
 
         # TODO it would be nice to parametrize these (or even accept arbitrary
         # transports), but the event loop doesn't support async reading from
@@ -533,8 +600,6 @@ class ShellClient:
         self.stdin = sys.stdin.buffer
         self.stdout = sys.stdout.buffer.raw
 
-        self.event_queue = Queue(loop=loop)
-
     @asyncio.coroutine
     def connect(self):
         # TODO would be nice to intercept stdout and turn it into logging?
@@ -543,8 +608,9 @@ class ShellClient:
         #from asyncio.unix_events import _set_nonblocking
         #_set_nonblocking(self.stdin.fileno())
 
+        proto = DywypiShell(self.loop, self.network, writer=self.stdout)
         _, self.protocol = yield from self.loop.connect_read_pipe(
-            lambda: DywypiShell(self.loop, writer=self.stdout), self.stdin)
+            lambda: proto, self.stdin)
 
     @asyncio.coroutine
     def disconnect(self):
@@ -555,19 +621,4 @@ class ShellClient:
     def read_event(self):
         # For now, this will never ever do anything.
         # TODO this sure looks a lot like IRCClient
-        return (yield from self.event_queue.get())
-
-    def format_transition(self, current_style, new_style):
-        # TODO wait lol shouldn't this be converting to urwid-style tuples
-        if new_style == Style.default():
-            # Just use the reset sequence
-            return '\x1b[0m'
-
-        ansi_codes = []
-        if new_style.fg != current_style.fg:
-            ansi_codes.append(FOREGROUND_CODES[new_style.fg])
-
-        if new_style.bold != current_style.bold:
-            ansi_codes.append(BOLD_CODES[new_style.bold])
-
-        return '\x1b[' + ';'.join(ansi_codes) + 'm'
+        return (yield from self.protocol.event_queue.get())
