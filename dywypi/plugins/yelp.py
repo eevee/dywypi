@@ -12,7 +12,7 @@ from oauthlib.oauth1 import Client
 from dywypi.event import Message
 from dywypi.plugin import Plugin
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 plugin = Plugin('yelp')
 
 
@@ -59,7 +59,7 @@ class YelpAsyncAPI:
     def send_query(self, uri, params=None):
         if params:
             params = self.clean_params(params)
-        logger.debug("yelp send:%s", params)
+        log.debug("yelp send:%s", params)
         uri = uri + "?" + params
         uri, headers, _ = self.client.sign(uri)
 
@@ -70,7 +70,7 @@ class YelpAsyncAPI:
 
         data = json.loads((yield from response.read()).decode('utf8'))
         if 'error' in data:
-            logger.debug(data)
+            log.debug(data)
             raise YelpError(msg=data['error']['text'])
         return data
 

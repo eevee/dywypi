@@ -24,7 +24,7 @@ from dywypi.event import Message
 from dywypi.formatting import Bold, Color, Style
 from dywypi.state import Peer
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
 class UrwidDummyInput(object):
@@ -303,7 +303,7 @@ class UrwidProtocol(asyncio.Protocol):
     def _loop_exception_handler(self, loop, context):
         if context.get('exception'):
             try:
-                logger.exception(context['exception'])
+                log.exception(context['exception'])
             except Exception as e:
                 import sys
                 sys.stderr.write(repr(context))
@@ -462,7 +462,7 @@ class DywypiShell(UrwidProtocol):
         try:
             self._handle_line(line)
         except Exception as e:
-            logger.exception(e)
+            log.exception(e)
 
     def _handle_line(self, line):
         """All the good stuff happens here.
