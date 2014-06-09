@@ -56,6 +56,10 @@ class ProtocolFileAdapter(object):
     def flush(self):
         pass
 
+    def fileno(self):
+        # TODO obviously bogus here too.
+        return 1
+
 
 class AsyncScreen(Screen):
     """An Urwid screen that speaks to an asyncio transport, rather than mucking
@@ -68,7 +72,7 @@ class AsyncScreen(Screen):
 
         Screen.__init__(self)
         self.colors = 256
-        self.bright_is_bold = True
+        self.bright_is_bold = False
         self.register_palette_entry(None, 'default', 'default')
 
         # Don't let urwid mess with stdin/stdout directly; give it these dummy
@@ -131,9 +135,10 @@ class AsyncScreen(Screen):
         self.gpm_mev = m
 
     def _stop_gpm_tracking(self):
-        os.kill(self.gpm_mev.pid, signal.SIGINT)
-        os.waitpid(self.gpm_mev.pid, 0)
-        self.gpm_mev = None
+        if self.gpm_mev:
+            os.kill(self.gpm_mev.pid, signal.SIGINT)
+            os.waitpid(self.gpm_mev.pid, 0)
+            self.gpm_mev = None
 
 
 class AsyncioUrwidEventLoop:
@@ -295,10 +300,10 @@ class UrwidProtocol(asyncio.Protocol):
 
         self.start()
 
+        # TODO not sure this belongs here
         self.log_handler = DywypiShellLoggingHandler(self)
         root_logger = logging.getLogger()
         root_logger.addHandler(self.log_handler)
-        # TODO remove handler shenanigans on connection lost
 
     def _loop_exception_handler(self, loop, context):
         if context.get('exception'):
@@ -346,6 +351,9 @@ class UrwidProtocol(asyncio.Protocol):
         self.urwid_loop.event_loop.enter_idle(self.urwid_loop.entering_idle)
 
     def stop(self):
+        root_logger = logging.getLogger()
+        root_logger.removeHandler(self.log_handler)
+
         # TODO this probably needs slightly more effort
         self.screen.stop()
 
@@ -417,7 +425,7 @@ class DywypiShell(UrwidProtocol):
     def build_palette(self):
         return [
             ('default', 'default', 'default'),
-            ('logging-debug', 'dark green', 'default'),
+            ('logging-debug', 'dark gray', 'default'),
             ('logging-info', 'light gray', 'default'),
             ('logging-warning', 'light red', 'default'),
             ('logging-error', 'dark red', 'default'),
