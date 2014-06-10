@@ -41,11 +41,6 @@ def test_echo(loop):
         IRCMessage('PRIVMSG', 'dywypi', 'dywypi: echo foo', prefix='nobody!ident@host'),
     )
 
-    manager.fire(ev)
-
-    # Stop the loop as soon as everything has been processed
-    # TODO is this the best way to do this, haha
-    loop.call_soon(loop.stop)
-    loop.run_forever()
+    loop.run_until_complete(asyncio.gather(*manager.fire(ev), loop=loop))
 
     assert client.accumulated_messages == [('nobody', 'foo')]
