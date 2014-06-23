@@ -347,7 +347,7 @@ class IRCClient:
             target = Peer(target_name, None, None)
             cls = PrivateMessage
 
-        return cls(source, target, message, client=self, raw=message)
+        return cls(source, target, text, client=self, raw=message)
 
     @asyncio.coroutine
     def read_event(self):

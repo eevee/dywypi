@@ -29,8 +29,17 @@ class Message(Event):
         self.target = target
         self.message = message
 
-    channel = None
-    """This is populated only for public messages."""
+    @property
+    def channel(self):
+        """Channel to which the message was sent.  This is populated only for
+        public messages.
+        """
+        # This makes me unhappy, but putting it on PublicMessage means it
+        # doesn't work for CommandEvent  :/
+        if isinstance(self.target, Channel):
+            return self.target
+        else:
+            return None
 
 
 class PublicMessage(Message):
@@ -41,9 +50,6 @@ class PublicMessage(Message):
     chatter.  Listen to the `Message` parent class to receive events for all
     messages, whether commands or not.
     """
-    @property
-    def channel(self):
-        return self.target
 
 
 class PrivateMessage(Message):
