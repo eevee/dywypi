@@ -22,6 +22,13 @@ def names(event):
     yield from event.reply("names returned: {!r}".format(names))
 
 
+@plugin.command('whois')
+def whois(event):
+    messages = yield from event.client.whois(event.args[0])
+    for msg in messages:
+        yield from event.reply(repr(msg))
+
+
 @plugin.command('echo-color')
 def echo_color(event):
     from dywypi.formatting import FormattedString, Color
