@@ -4,7 +4,9 @@ import importlib
 import logging
 import pkgutil
 
-from dywypi.event import Event, Message, _MessageMixin
+from dywypi.event import Event, Message
+from dywypi.event import PrivateMessage
+from dywypi.event import PublicMessage
 
 log = logging.getLogger(__name__)
 
@@ -45,20 +47,9 @@ class EventWrapper:
         return getattr(self.event, attr)
 
 
-class PluginEvent(Event):
-    """Base class for special plugin-only events that don't make sense for
-    generic clients.  Usually more specific versions of main dywypi events, to
-    allow for finer-grained listening in plugins.
-    """
-
-
-class PublicMessage(PluginEvent, _MessageMixin):
-    pass
-
-
-class Command(PluginEvent, _MessageMixin):
-    def __init__(self, client, raw_message, command_name, argstr):
-        super().__init__(client, raw_message)
+class CommandMessage(Message):
+    def __init__(self, source, target, message, command_name, argstr, **kwargs):
+        super().__init__(source, target, message, **kwargs)
         self.command_name = command_name
         self.argstr = argstr
         self.args = argstr.strip().split()
@@ -172,10 +163,10 @@ class PluginManager:
                     command_name, argstr = message.strip(), ''
 
                 plugin_name, _, command_name = command_name.rpartition('.')
-                command_event = Command.from_event(
-                    event,
-                    command_name=command_name,
-                    argstr=argstr,
+                command_event = CommandMessage(
+                    event.source, event.target, event.message,
+                    command_name, argstr,
+                    client=event.client, raw=event.raw_message,
                 )
                 log.debug('Firing command %r', command_event)
                 if plugin_name:
@@ -186,8 +177,7 @@ class PluginManager:
                         self._fire_global_command(command_event))
             else:
                 # Regular public message.
-                futures.extend(
-                    self._fire(PublicMessage.from_event(event)))
+                futures.extend(self._fire(event))
 
             # TODO: what about private messages that don't "look like"
             # commands?  what about "all" public messages?  etc?

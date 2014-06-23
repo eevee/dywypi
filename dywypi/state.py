@@ -75,6 +75,7 @@ class Peer:
         self.host = host
         self.is_server = is_server
 
+    # TODO this should definitely not be here
     @classmethod
     def from_prefix(cls, prefix):
         """Parse a raw IRC prefix (probably from `IRCMessage.prefix`) of the

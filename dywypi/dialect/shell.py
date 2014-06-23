@@ -494,12 +494,6 @@ class DywypiShell(UrwidProtocol):
         # TODO cool color
         self.add_log_line(message)
 
-    # TODO split the client interface out from the protocol?
-    def source_from_message(self, raw_message):
-        """Produce a peer of some sort from a raw message."""
-        # TODO maybe a less dumb thing
-        return self.you
-
     @asyncio.coroutine
     def say(self, target, message):
         # TODO target should probably be a peer, eh

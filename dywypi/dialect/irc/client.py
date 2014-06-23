@@ -5,7 +5,7 @@ from datetime import datetime
 import getpass
 import logging
 
-from dywypi.event import Message
+from dywypi.event import PublicMessage, PrivateMessage
 from dywypi.formatting import Bold, Color, Style
 from dywypi.state import Peer
 from .message import IRCMessage
@@ -334,7 +334,20 @@ class IRCClient:
                 del self._join_futures[channel_name]
 
     def _handle_PRIVMSG(self, message):
-        return Message(self, message)
+        # PRIVMSG target :text
+        target_name, text = message.args
+
+        source = Peer.from_prefix(message.prefix)
+
+        if target_name[0] in self.channel_types:
+            target = self.get_channel(target_name)
+            cls = PublicMessage
+        else:
+            # TODO this is /us/, so, surely ought to be known
+            target = Peer(target_name, None, None)
+            cls = PrivateMessage
+
+        return cls(source, target, message, client=self, raw=message)
 
     @asyncio.coroutine
     def read_event(self):
@@ -405,14 +418,6 @@ class IRCClient:
         message = IRCMessage(command, *args)
         log.debug("sent: %r", message)
         self._writer.write(message.render().encode(self.charset) + b'\r\n')
-
-    def source_from_message(self, raw_message):
-        """Produce a peer object of some sort, representing the sender of the
-        given message.
-        """
-        # TODO this should produce the same object every time really, but atm
-        # we don't keep users or servers catalogued
-        return Peer.from_prefix(self.raw_message.prefix)
 
     def format_transition(self, current_style, new_style):
         if new_style == Style.default():
