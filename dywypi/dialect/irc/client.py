@@ -122,7 +122,6 @@ class IRCClient:
         # TODO: handle disconnection, somehow.  probably affects a lot of
         # things.
         self._reader, self._writer = yield from server.connect(self.loop)
-        print('connected!')
 
         if server.password:
             self.send_message('PASS', server.password)
