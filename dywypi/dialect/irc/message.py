@@ -42,6 +42,24 @@ class IRCMessage:
             prefix=prefix,
         )
 
+    @property
+    def is_error(self):
+        """Return True if this is a known error response, or is /probably/ an
+        unknown error response.
+        """
+        if self.command.startswith('ERR_'):
+            return True
+
+        if self.numeric:
+            num = int(self.numeric)
+            if 400 <= num < 600 or 900 <= num < 1000:
+                # These are the numeric ranges used by virtually all existing
+                # error responses, so /presumably/ any newly-invented ones
+                # would lie in the same range.
+                return True
+
+        return False
+
     def render(self):
         """String representation of an IRC message.  DOES NOT include the
         trailing newlines.

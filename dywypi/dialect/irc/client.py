@@ -1,6 +1,6 @@
 import asyncio
 from asyncio.queues import Queue
-from collections import OrderedDict
+from collections import deque
 from concurrent.futures import CancelledError
 from datetime import datetime
 from datetime import timedelta
@@ -87,7 +87,7 @@ class IRCClient:
         self._pending_topics = {}
         self._join_futures = {}
 
-        self._message_waiters = OrderedDict()
+        self._message_waiters = deque()
 
         self.read_queue = Queue(loop=loop)
 
@@ -180,7 +180,7 @@ class IRCClient:
         for command in errors:
             messages[command] = 'error'
         collected = []
-        self._message_waiters[fut] = (messages, collected)
+        self._message_waiters.append((fut, messages, collected))
         yield from fut
         return collected
 
@@ -199,31 +199,34 @@ class IRCClient:
         # responses.  ESPECIALLY when error codes are possible.  something here
         # is gonna have to get a bit fancier.
 
-        for fut, (waiting_on, collected) in self._message_waiters.items():
-            # TODO this needs to handle error codes too, or the future will
-            # linger forever!  potential problem: if the server is lagging
-            # behind us, an error code might actually map to a privmsg we tried
-            # to send (which has no success response) and we'll get all fucked
-            # up.  i don't know if there's any way to solve this.
-            # TODO hey stupid question: after we've seen ANY of the waited-on
-            # messages, should we pipe all subsequent messages into that future
-            # until we see the one that's supposed to end it?  something like
-            # a forced JOIN could screw up a join attempt, for example, but if
-            # we're getting RPL_TOPIC when we didn't actually ask for the
-            # topic, THEN we know we're definitely in the join sequence.
-            # TODO also given normal irc response flow, i'm pretty sure we
-            # should only ever need to check the first pending future.  there's
-            # no way we should need to skip around.
-            # TODO maybe give these a timeout so a bad one doesn't fuck us up
-            # forever
+        while self._message_waiters:
+            fut, waiting_on, collected = self._message_waiters[0]
+            # TODO is it possible for even a PING to appear in the middle of
+            # some other response?
             if message.command in waiting_on:
-                collected.append(message)
-                if waiting_on[message.command] == 'end':
-                    fut.set_result(collected)
-                    del self._message_waiters[fut]
-                elif waiting_on[message.command] == 'error':
-                    fut.set_exception(IRCError(message))
-                    del self._message_waiters[fut]
+                action = waiting_on[message.command]
+            elif message.is_error:
+                action = 'error'
+            else:
+                # Got a regular response we weren't expecting!  Let's hope it
+                # was just extra information jammed into a WHOIS or the like,
+                # and treat it as though it were expected.
+                action = 'middle'
+
+            collected.append(message)
+
+            if action == 'middle':
+                # Expected this response; should keep feeding into this future.
+                break
+            elif action == 'end':
+                # Successful finish
+                fut.set_result(collected)
+                self._message_waiters.popleft()
+                break
+            elif action == 'error':
+                # Expected failure
+                fut.set_exception(IRCError(message))
+                self._message_waiters.popleft()
                 break
 
         # Boy do I ever hate this pattern but it's slightly more maintainable
