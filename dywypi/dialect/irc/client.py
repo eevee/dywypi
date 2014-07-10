@@ -446,7 +446,6 @@ class IRCClient:
         # TODO apparently you can whois multiple nicks at a time
         for message in messages:
             if message.command == 'RPL_WHOISUSER':
-                ident, hostname
                 ident = message.args[2]
                 hostname = message.args[3]
                 # args[4] is a literal *

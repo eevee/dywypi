@@ -31,11 +31,21 @@ class FakeServer(object):
         fut.set_result((self.reader, writer))
         return fut
 
-    def feed(self, data):
-        """Used in tests.  Push some data into the reader, as though it had
-        come over the network.
+    def feed_irc(self, *args):
+        """Used in tests.  Push an entire IRC-style command into the client, as
+        though it had come over the network.
         """
-        self.reader.feed_data(data)
+        args = list(args)
+
+        # Take care of the trailing argument
+        if ' ' in args[-1]:
+            args[-1] = ':' + args[-1]
+
+        # Add a (dummy?) prefix
+        args = [':prefix!ident@host'] + args
+
+        data = ' '.join(args) + '\r\n'
+        self.reader.feed_data(data.encode('utf8'))
 
 
 @pytest.fixture
@@ -67,8 +77,11 @@ def client(loop, local_network):
     return client
 
 
-def wrap_coro(loop, corogen):
+def wrap_coro(corogen):
     """Wrap a coroutine spawner in a regular callable function."""
+    # TODO unclear how to get this cleanly from the fixture
+    loop = asyncio.get_event_loop()
+
     def wrapped(**kwargs):
         return loop.run_until_complete(
             asyncio.wait_for(corogen(**kwargs), 100, loop=loop)
@@ -88,8 +101,6 @@ def pytest_pycollect_makeitem(collector, name, obj):
     if collector.funcnamefilter(name) and asyncio.iscoroutinefunction(obj):
         items = list(collector._genfunctions(name, obj))
         for item in items:
-            # Grab the loop via the fixture plumbing
-            loop = item._request.getfuncargvalue('loop')
-            item.obj = wrap_coro(loop, item.obj)
+            item.obj = wrap_coro(item.obj)
 
         return items
