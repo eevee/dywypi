@@ -13,6 +13,9 @@ def test_message_parsing(loop, client, fake_server):
 
 @asyncio.coroutine
 def test_gather_messages(loop, client, fake_server):
+    # Hypothetical stuff still in the pipe that's not yet a response to us
+    fake_server.feed_irc('JUNK', 'nothing')
+
     fake_server.feed_irc('BEGIN', 'foo')
     fake_server.feed_irc('MIDDLE', 'hello')
     fake_server.feed_irc('END', 'bar')
@@ -41,3 +44,14 @@ def test_whois(loop, client, fake_server):
 
     # TODO ok well the retval is not yet well-defined
     assert whois
+
+
+@asyncio.coroutine
+def test_names(loop, client, fake_server):
+    fake_server.feed_irc('RPL_NAMREPLY', 'dywypi', '=', '#channel', '@fred +wilma barney')
+    fake_server.feed_irc('RPL_ENDOFNAMES', 'dywypi', '#channel', 'End of /NAMES list.')
+
+    names = yield from client.names('#channel')
+
+    assert len(names) == 3
+    # TODO assert the specific names once the sigil parsing is done

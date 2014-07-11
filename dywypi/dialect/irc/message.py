@@ -76,7 +76,7 @@ class IRCMessage:
     PATTERN = re.compile(
         r'''\A
         (?: : (?P<prefix>[^ ]+) [ ]+ )?
-        (?P<command> \d{3} | [a-zA-Z]+ )
+        (?P<command> \d{3} | [_a-zA-Z]+ )
         (?P<args>
             (?: [ ]+ [^: \x00\r\n][^ \x00\r\n]* )*
         )
@@ -274,7 +274,6 @@ NUMERICS = {
     '296': 'RPL_CHANINFO_KICKS',
     '299': 'RPL_END_CHANINFO',
     '300': 'RPL_NONE',
-    '301': 'RPL_AWAY',
     '301': 'RPL_AWAY',
     '302': 'RPL_USERHOST',
     '303': 'RPL_ISON',

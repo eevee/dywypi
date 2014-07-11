@@ -203,15 +203,28 @@ class IRCClient:
             fut, waiting_on, collected = self._message_waiters[0]
             # TODO is it possible for even a PING to appear in the middle of
             # some other response?
+            # TODO this is still susceptible to weirdness when there's, say, a
+            # queued error response to a PRIVMSG on its way back; it'll look
+            # like the call we just made failed, and all the real responses
+            # will be dropped.  can we assume some set of error replies ONLY
+            # happen in response to sending a message of some kind, maybe?
+            # TODO for that matter, where does the error response to a PRIVMSG
+            # even go?  the whole problem is that we can't know for sure when
+            # it succeeded, unless we put a timeout on every call to say()
             if message.command in waiting_on:
                 action = waiting_on[message.command]
             elif message.is_error:
                 action = 'error'
-            else:
+            elif collected:
                 # Got a regular response we weren't expecting!  Let's hope it
                 # was just extra information jammed into a WHOIS or the like,
                 # and treat it as though it were expected.
                 action = 'middle'
+            else:
+                # Got a regular response we weren't expecting, AND this future
+                # hasn't started collecting yet -- the response probably just
+                # hasn't started coming back yet, so don't do anything yet.
+                break
 
             collected.append(message)
 
@@ -500,6 +513,8 @@ class IRCClient:
     @asyncio.coroutine
     def names(self, channel_name):
         """Coroutine that returns a list of names in a channel."""
+        # TODO there's some ISUPPORT extension that lists /all/ channel modes
+        # on each name that comes back...  support that?
         self.send_message('NAMES', channel_name)
 
         # No need to do the same thing twice
