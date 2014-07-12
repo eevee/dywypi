@@ -23,7 +23,7 @@ def test_gather_messages(loop, client, fake_server):
     messages = yield from client.gather_messages(
         'BEGIN',
         'MIDDLE',
-        end=['END'],
+        finish=['END'],
     )
 
     assert [m.command for m in messages] == ['BEGIN', 'MIDDLE', 'END']

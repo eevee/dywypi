@@ -170,19 +170,62 @@ class IRCClient:
                 log.exception("Smothering exception in IRC read loop")
 
     @asyncio.coroutine
-    def gather_messages(self, *middle, end, errors=()):
+    def gather_messages(self, *start, finish):
         fut = asyncio.Future()
         messages = {}
-        for command in middle:
-            messages[command] = 'middle'
-        for command in end:
-            messages[command] = 'end'
-        for command in errors:
-            messages[command] = 'error'
+        for command in start:
+            messages[command] = False
+        for command in finish:
+            messages[command] = True
         collected = []
         self._message_waiters.append((fut, messages, collected))
         yield from fut
         return collected
+
+    def _possibly_gather_message(self, message):
+        if not self._message_waiters:
+            return
+
+        # TODO there is a general ongoing problem here with matching up
+        # responses.  ESPECIALLY when error codes are possible.  something here
+        # is gonna have to get a bit fancier.
+
+        fut, waiting_on, collected = self._message_waiters[0]
+        # TODO is it possible for even a PING to appear in the middle of
+        # some other response?
+        # TODO this is still susceptible to weirdness when there's, say, a
+        # queued error response to a PRIVMSG on its way back; it'll look
+        # like the call we just made failed, and all the real responses
+        # will be dropped.  can we assume some set of error replies ONLY
+        # happen in response to sending a message of some kind, maybe?
+        # TODO for that matter, where does the error response to a PRIVMSG
+        # even go?  the whole problem is that we can't know for sure when
+        # it succeeded, unless we put a timeout on every call to say()
+        finish = False
+        if message.command in waiting_on:
+            finish = waiting_on[message.command]
+        elif message.is_error:
+            # Always consider an error as finishing
+            # TODO but we might have gotten this error in response to something
+            # else we did before this message...  :S
+            finish = True
+        elif not collected:
+            # Got a regular response we weren't expecting, AND this future
+            # hasn't started collecting yet -- the response probably just
+            # hasn't started coming back yet, so don't do anything yet.
+            return
+
+        # If we get here, we expected this response, and should keep
+        # feeding into this future.
+        collected.append(message)
+
+        if finish:
+            # Done, one way or another
+            self._message_waiters.popleft()
+            if message.is_error:
+                fut.set_exception(IRCError(message))
+            else:
+                fut.set_result(collected)
 
     @asyncio.coroutine
     def _read_message(self):
@@ -195,52 +238,8 @@ class IRCClient:
         message = IRCMessage.parse(line.decode(self.charset))
         log.debug("recv: %r", message)
 
-        # TODO there is a general ongoing problem here with matching up
-        # responses.  ESPECIALLY when error codes are possible.  something here
-        # is gonna have to get a bit fancier.
-
-        while self._message_waiters:
-            fut, waiting_on, collected = self._message_waiters[0]
-            # TODO is it possible for even a PING to appear in the middle of
-            # some other response?
-            # TODO this is still susceptible to weirdness when there's, say, a
-            # queued error response to a PRIVMSG on its way back; it'll look
-            # like the call we just made failed, and all the real responses
-            # will be dropped.  can we assume some set of error replies ONLY
-            # happen in response to sending a message of some kind, maybe?
-            # TODO for that matter, where does the error response to a PRIVMSG
-            # even go?  the whole problem is that we can't know for sure when
-            # it succeeded, unless we put a timeout on every call to say()
-            if message.command in waiting_on:
-                action = waiting_on[message.command]
-            elif message.is_error:
-                action = 'error'
-            elif collected:
-                # Got a regular response we weren't expecting!  Let's hope it
-                # was just extra information jammed into a WHOIS or the like,
-                # and treat it as though it were expected.
-                action = 'middle'
-            else:
-                # Got a regular response we weren't expecting, AND this future
-                # hasn't started collecting yet -- the response probably just
-                # hasn't started coming back yet, so don't do anything yet.
-                break
-
-            collected.append(message)
-
-            if action == 'middle':
-                # Expected this response; should keep feeding into this future.
-                break
-            elif action == 'end':
-                # Successful finish
-                fut.set_result(collected)
-                self._message_waiters.popleft()
-                break
-            elif action == 'error':
-                # Expected failure
-                fut.set_exception(IRCError(message))
-                self._message_waiters.popleft()
-                break
+        # TODO unclear whether this should go before or after _handle_foo
+        self._possibly_gather_message(message)
 
         # Boy do I ever hate this pattern but it's slightly more maintainable
         # than a 500-line if tree.
@@ -447,10 +446,8 @@ class IRCClient:
             'RPL_WHOISSECURE',
             'RPL_WHOISSTAFF',
             'RPL_WHOISLANGUAGE',
-            end=[
+            finish=[
                 'RPL_ENDOFWHOIS',
-            ],
-            errors=[
                 'ERR_NOSUCHSERVER',
                 'ERR_NONICKNAMEGIVEN',
                 'ERR_NOSUCHNICK',
