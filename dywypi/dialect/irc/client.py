@@ -208,6 +208,10 @@ class IRCClient:
             # Always consider an error as finishing
             # TODO but we might have gotten this error in response to something
             # else we did before this message...  :S
+            if message.command in {'ERR_CANNOTSENDTOCHAN'}:
+                # Looks like a PRIVMSG error or similar, so probably not a
+                # response to this particular message.
+                return
             finish = True
         elif not collected:
             # Got a regular response we weren't expecting, AND this future
