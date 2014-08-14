@@ -96,7 +96,8 @@ class Brain:
             # Evaluate all the tasks that completed (probably just one)
             for d in done:
                 event = yield from d
-                self.plugin_manager.fire(event)
+                if event:
+                    self.plugin_manager.fire(event)
 
     def stop(self, loop):
         """Disconnect all clients."""

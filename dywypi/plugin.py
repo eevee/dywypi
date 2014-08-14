@@ -1,5 +1,6 @@
 import asyncio
 from collections import defaultdict
+from collections.abc import MutableMapping
 import importlib
 import logging
 import pkgutil
@@ -11,6 +12,36 @@ from dywypi.event import PublicMessage
 log = logging.getLogger(__name__)
 
 
+class PluginDataWrapper(MutableMapping):
+    """Event-aware methods for plugin data."""
+    def __init__(self, plugin_data, event):
+        self._plugin_data = plugin_data
+        self._event = event
+
+    def per_channel(self, cls):
+        channel = self._event.channel
+        d = self._plugin_data.per_channel
+        if cls not in d[channel]:
+            d[channel] = cls(channel)
+        return d[channel]
+
+    # Mapping interface
+    def __getitem__(self, key):
+        return self._plugin_data.general[key]
+
+    def __setitem__(self, key, value):
+        self._plugin_data.general[key] = value
+
+    def __delitem__(self, key):
+        del self._plugin_data.general
+
+    def __iter__(self):
+        return iter(self._plugin_data.general)
+
+    def __len__(self):
+        return len(self._plugin_data.general)
+
+
 class EventWrapper:
     """Little wrapper around an event object that provides convenient plugin
     methods like `reply`.  All other attributes are delegated to the real
@@ -19,16 +50,17 @@ class EventWrapper:
     def __init__(self, event, plugin_data, plugin_manager):
         self.event = event
         self.type = type(event)
-        self.plugin_data = plugin_data
+        self.data = PluginDataWrapper(plugin_data, event)
         self._plugin_manager = plugin_manager
 
-    @property
-    def data(self):
-        return self.plugin_data
-
-    # TODO should this just be on Event?
+    # TODO should these just be on Event?
     @asyncio.coroutine
     def reply(self, message):
+        # TODO should address the speaker!
+        return self.say(message)
+
+    @asyncio.coroutine
+    def say(self, message):
         if self.event.channel:
             reply_to = self.event.channel.name
         else:
@@ -59,10 +91,27 @@ class CommandMessage(Message):
             type(self).__qualname__, self.command_name, self.args)
 
 
+class _DummyEvent:
+    """Marker for an event class that doesn't actually have any interesting
+    data and is triggered by the system itself, such as `Load`.
+    """
+
+
+# TODO should there be a shutdown event then?
+class Load(_DummyEvent):
+    """Fired when the plugin is first loaded."""
+
+
+class PluginData:
+    def __init__(self):
+        self.general = dict()
+        self.per_channel = defaultdict(dict)
+
+
 class PluginManager:
     def __init__(self):
         self.loaded_plugins = {}
-        self.plugin_data = defaultdict(dict)
+        self.plugin_data = defaultdict(PluginData)
 
     @property
     def known_plugins(self):
@@ -215,7 +264,7 @@ class Plugin(BasePlugin):
         super().__init__(name)
 
     def on(self, event_cls):
-        if not issubclass(event_cls, Event):
+        if not issubclass(event_cls, (Event, _DummyEvent)):
             raise TypeError("Can only listen on an Event subclass, not {}".format(event_cls))
 
         def decorator(f):
