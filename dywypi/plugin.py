@@ -22,8 +22,8 @@ class PluginDataWrapper(MutableMapping):
         channel = self._event.channel
         d = self._plugin_data.per_channel
         if cls not in d[channel]:
-            d[channel] = cls(channel)
-        return d[channel]
+            d[channel][cls] = cls(channel)
+        return d[channel][cls]
 
     # Mapping interface
     def __getitem__(self, key):

@@ -20,6 +20,7 @@ from dywypi.plugins.game import GamePlugin
 
 
 class UnoGame(object):
+    new = True
     started = False
     ended = False
     turn_player_idx = None
@@ -46,6 +47,9 @@ class UnoGame(object):
         random.shuffle(self.deck)
 
     def add_player(self, peer):
+        self.new = False
+        if self.started:
+            raise AlreadyRunning
         player = UnoPlayer(peer, self)
         self.players.append(player)
         self.player_map[peer] = player
@@ -219,39 +223,42 @@ def find_game(event):
     if not event.channel:
         raise NeedsChannel
 
-    game = self.game
-    if game and game.channel != event.channel:
-        raise WrongChannel
-
-    return game
+    return event.data.per_channel(UnoGame)
 
 
 
 plugin = GamePlugin('uno', UnoGame)
 
-@plugin.game_start('start')
+
+@plugin.game_command('start')
 def setup_game(event, game):
+    game = find_game(event)
+    if not game.new:
+        # TODO convert this, and everything else, to exceptions
+        yield from event.reply("Slow your roll.  There's already a game going.")
+        return
     game.add_player(event.source)
     # TODO help
     yield from event.say("Starting a game, with {0} as player 1.  Any takers?".format(event.source.name))
 
 
-@plugin.command('join', is_global=False)
-def join_game(event):
+@plugin.game_command('join')
+def join_game(event, game):
+    game = find_game(event)
     # TODO don't join twice
-    # TODO must be in same channel
     # TODO must be a person  :D
     # TODO max players
-    if not self.game:
+    if not game:
+        # TODO this doesn't actually work.
         # TODO help
         yield from event.reply("Join what?  No one's playing.")
         return
-    if self.game.started:
+    if game.started:
         # TODO could still join as long as they wouldn't /have gone/ yet
         yield from event.reply("Sorry, the game's already started.  Maybe next time.")
         return
 
-    self.game.add_player(event.source)
+    game.add_player(event.source)
 
 
 @plugin.command('deal', is_global=False)

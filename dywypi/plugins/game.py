@@ -30,8 +30,7 @@ class GamePlugin(Plugin):
             games[event.channel] = self.game_factory(event.channel)
         return games[event.channel]
 
-
-    def game_start(self, command_name):
+    def game_command(self, command_name):
         def decorator(f):
             def inner_function(event):
                 game = yield from self._find_game(event)
