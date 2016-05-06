@@ -27,240 +27,69 @@ from dywypi.state import Peer
 log = logging.getLogger(__name__)
 
 
-class UrwidDummyInput(object):
-    """Fake stdin.
-
-    The only thing we want urwid to know about stdin is that its fd is zero
-    (mainly for setting cbreak).
-    """
-    def fileno(self):
-        # TODO this doesn't work over a network.  obviously.  need protocol
-        # support for that; telnet can do it.
-        return 0
-
-
-class ProtocolFileAdapter(object):
-    """Fake stdout.
-
-    File-like object, at least as much as urwid cares, that redirects
-    urwid's stdout through a protocol and ignores flushes.
-    """
-    def __init__(self, transport):
-        self.transport = transport
-
-    def write(self, s):
-        if isinstance(s, str):
-            s = s.encode('latin1')
-        self.transport.write(s)
-
-    def flush(self):
-        pass
-
-    def fileno(self):
-        # TODO obviously bogus here too.
-        return 1
-
-
 class AsyncScreen(Screen):
-    """An Urwid screen that speaks to an asyncio transport, rather than mucking
+    """An Urwid screen that speaks to an asyncio stream, rather than mucking
     directly with stdin and stdout.
     """
 
-    def __init__(self, transport, protocol):
-        self.transport = transport
-        self.protocol = protocol
+    def __init__(self, reader, writer, encoding='utf8'):
+        self.reader = reader
+        self.writer = writer
+        self.encoding = encoding
 
+        # Allow using the defaults of stdin and stdout, so the screen size and
+        # whatnot are still detected correctly
         Screen.__init__(self)
+
         self.colors = 256
         self.bright_is_bold = False
         self.register_palette_entry(None, 'default', 'default')
 
-        # Don't let urwid mess with stdin/stdout directly; give it these dummy
-        # objects instead
-        self._term_input_file = UrwidDummyInput()
-        self._term_output_file = ProtocolFileAdapter(self.transport)
-
     # Urwid Screen API
 
-    # XXX untested
-    def set_mouse_tracking(self):
-        """Enable mouse tracking.
+    def write(self, data):
+        self.writer.write(data.encode(self.encoding))
 
-        After calling this function get_input will include mouse
-        click events along with keystrokes.
-        """
-        # XXX FIXME
-        return
-        self.transport.write(urwid.escape.MOUSE_TRACKING_ON)
+    def flush(self):
+        pass
 
-        self._start_gpm_tracking()
+    _pending_task = None
 
-    def get_input_descriptors(self):
-        # We don't really have file descriptors, only transports, so return
-        # nothing here and call MainLoop._update manually
-        return []
+    def hook_event_loop(self, event_loop, callback):
+        # Wait on the reader's read coro, and when there's data to read, call
+        # the callback and then wait again
+        def pump_reader(fut=None):
+            if fut is None:
+                # First call, do nothing
+                pass
+            elif fut.cancelled():
+                # This is in response to an earlier .read() call, so don't
+                # schedule another one!
+                return
+            elif fut.exception():
+                pass
+            else:
+                try:
+                    self.parse_input(
+                        event_loop, callback, bytearray(fut.result()))
+                except urwid.ExitMainLoop:
+                    # This will immediately close the transport and thus the
+                    # connection, which in turn calls connection_lost, which
+                    # stops the screen and the loop
+                    self.writer.abort()
 
-    def get_input(self, raw_keys=False):
-        # Do nothing here either.  Only used when MainLoop doesn't have an
-        # event loop, which doesn't happen here.
-        return
+            # asyncio.async() schedules a coroutine without using `yield from`,
+            # which would make this code not work on Python 2
+            self._pending_task = asyncio.ensure_future(
+                self.reader.read(1024), loop=event_loop._loop)
+            self._pending_task.add_done_callback(pump_reader)
 
-    def get_input_nonblocking(self):
-        codes = self.protocol.buf.getvalue()
-        self.protocol.buf = BytesIO()
+        pump_reader()
 
-        processed_keys = []
-        original_codes = codes
-        while codes:
-            keys, codes = urwid.escape.process_keyqueue(codes, True)
-            processed_keys.extend(keys)
-
-            # TODO catch escape.MoreInputRequired?
-
-        return None, processed_keys, original_codes
-
-    # Private
-    def _start_gpm_tracking(self):
-        # TODO unclear if any of this is necessary locally
-        # also it doesn't work anyway due to missing imports
-        if not os.path.isfile("/usr/bin/mev"):
-            return
-        if not os.environ.get('TERM',"").lower().startswith("linux"):
-            return
-        if not Popen:
-            return
-        m = Popen(["/usr/bin/mev","-e","158"], stdin=PIPE, stdout=PIPE,
-            close_fds=True)
-        fcntl.fcntl(m.stdout.fileno(), fcntl.F_SETFL, os.O_NONBLOCK)
-        self.gpm_mev = m
-
-    def _stop_gpm_tracking(self):
-        if self.gpm_mev:
-            os.kill(self.gpm_mev.pid, signal.SIGINT)
-            os.waitpid(self.gpm_mev.pid, 0)
-            self.gpm_mev = None
-
-
-class AsyncioUrwidEventLoop:
-    def __init__(self, loop):
-        self.loop = loop
-        self._started_loop = False
-        self._exc_info = None
-
-    def alarm(self, seconds, callback):
-        """
-        Call callback() given time from from now.  No parameters are
-        passed to callback.
-
-        Returns a handle that may be passed to remove_alarm()
-
-        seconds -- floating point time to wait before calling callback
-        callback -- function to call from event loop
-        """
-        handle = self.loop.call_later(seconds, callback)
-        return handle
-
-    def remove_alarm(self, handle):
-        """
-        Remove an alarm.
-
-        Returns True if the alarm exists, False otherwise
-        """
-        handle.cancel()
-        return True
-
-    def watch_file(self, fd, callback):
-        """
-        Call callback() when fd has some data to read.  No parameters
-        are passed to callback.
-
-        Returns a handle that may be passed to remove_watch_file()
-
-        fd -- file descriptor to watch for input
-        callback -- function to call when input is available
-        """
-        self.loop.add_reader(fd, callback)
-        return fd
-
-    def remove_watch_file(self, handle):
-        """
-        Remove an input file.
-
-        Returns True if the input file exists, False otherwise
-        """
-        fd = handle
-        return self.loop.remove_reader(fd)
-
-    def enter_idle(self, callback):
-        """
-        Add a callback for entering idle.
-
-        Returns a handle that may be passed to remove_enter_idle()
-        """
-        # There's no such thing as "idle" in asyncio, so use a timer with an
-        # arbitrary resolution of, oh I don't know, 10fps.
-        return asyncio.async(self._idle_coro(callback), loop=self.loop)
-
-    @asyncio.coroutine
-    def _idle_coro(self, callback):
-        while True:
-            yield from asyncio.sleep(0.1, loop=self.loop)
-            callback()
-
-    def remove_enter_idle(self, handle):
-        """
-        Remove an idle callback.
-
-        Returns True if the handle was removed.
-        """
-        handle.cancel()
-        return True
-
-    def run(self):
-        """
-        Start the event loop.  Exit the loop when any callback raises
-        an exception.  If ExitMainLoop is raised, exit cleanly.
-        """
-        if self.loop.is_running():
-            # Don't try to start it again!
-            self._started_loop = False
-            # TODO wait i think uh we're supposed to block here or else urwid
-            # "cleans up" immediately?
-            print('uh wait uhoh')
-            return
-        else:
-            self._started_loop = True
-            self.loop.run_forever()
-
-        if self._exc_info:
-            # An exception caused us to exit, raise it now
-            exc_info = self._exc_info
-            self._exc_info = None
-            raise exc_info[0](exc_info[1]) from exc_info[2]
-
-    def handle_exit(self, f):
-        """
-        Decorator that cleanly exits the :class:`TwistedEventLoop` if
-        :class:`ExitMainLoop` is thrown inside of the wrapped function. Store the
-        exception info if some other exception occurs, it will be reraised after
-        the loop quits.
-
-        *f* -- function to be wrapped
-        """
-        from urwid.main_loop import ExitMainLoop
-        def wrapper(*args,**kargs):
-            rval = None
-            try:
-                rval = f(*args,**kargs)
-            except ExitMainLoop:
-                if self._started_loop:
-                    self.loop.stop()
-            except Exception:
-                self._exc_info = sys.exc_info()
-                if self._started_loop:
-                    self.loop.stop()
-            return rval
-        return wrapper
+    def unhook_event_loop(self, event_loop):
+        if self._pending_task:
+            self._pending_task.cancel()
+            del self._pending_task
 
 
 # TODO: catch ExitMainLoop somewhere
@@ -273,56 +102,38 @@ class UrwidProtocol(asyncio.Protocol):
     There are several methods stubbed out here that you'll need to subclass and
     implement.
     """
-
-    def __init__(self, loop, *, writer=None):
-        self.buf = BytesIO()
-
+    def __init__(self, loop, writer):
         self.loop = loop
-        # TODO this is a dumb hack because it's needlessly painful to get a
-        # bidirectional transport from a pair of existing pipes
         self.writer = writer
 
-    ### Protocol interface
     def connection_made(self, transport):
-        # TODO more dumb hack
-        if not self.writer:
-            self.writer = transport
+        self.transport = transport
+
+        self.reader = asyncio.StreamReader(loop=self.loop)
+        self.screen = AsyncScreen(self.reader, self.writer)
 
         self.widget = self.build_toplevel_widget()
-        self.screen = AsyncScreen(self.writer, self)
         self.urwid_loop = urwid.MainLoop(
             self.widget,
             screen=self.screen,
-            event_loop=AsyncioUrwidEventLoop(self.loop),
+            event_loop=urwid.AsyncioEventLoop(loop=self.loop),
             unhandled_input=self.unhandled_input,
             palette=self.build_palette(),
         )
 
-        self.start()
+        self.urwid_loop.start()
 
         # TODO not sure this belongs here
         self.log_handler = DywypiShellLoggingHandler(self)
         root_logger = logging.getLogger()
         root_logger.addHandler(self.log_handler)
 
-    def _loop_exception_handler(self, loop, context):
-        if context.get('exception'):
-            try:
-                log.exception(context['exception'])
-            except Exception as e:
-                import sys
-                sys.stderr.write(repr(context))
-                sys.stderr.write(repr(e))
-
     def data_received(self, data):
-        """Pass keypresses to urwid's main loop, which knows how to handle
-        them.
-        """
-        self.buf.write(data)
-        # This is what Urwid usually schedules with watch_file, but we don't
-        # HAVE files, so call it manually
-        self.urwid_loop._update()
-        self.urwid_loop.draw_screen()
+        self.reader.feed_data(data)
+
+    def connection_lost(self, exc):
+        self.reader.feed_eof()
+        self.urwid_loop.stop()
 
     # Override these guys:
 
@@ -337,25 +148,6 @@ class UrwidProtocol(asyncio.Protocol):
     def unhandled_input(self, input):
         """Do something with unhandled keypresses."""
         pass
-
-    # Starting and stopping urwid
-
-    def start(self):
-        self.screen.start()
-        # TODO it would be nice for this to work, but it expects to block on
-        # running the event loop, which obviously is a no go
-        #self.urwid_loop.run()
-
-        # Instead, we have to schedule this ourselves...
-        # TODO rather not use this hacky method in the first place
-        self.urwid_loop.event_loop.enter_idle(self.urwid_loop.entering_idle)
-
-    def stop(self):
-        root_logger = logging.getLogger()
-        root_logger.removeHandler(self.log_handler)
-
-        # TODO this probably needs slightly more effort
-        self.screen.stop()
 
 
 ### DYWYPI-SPECIFIC FROM HERE
@@ -448,11 +240,6 @@ class DywypiShell(UrwidProtocol):
             # `key` gets returned if it wasn't consumed
             self.add_log_line(key)
 
-    def start(self):
-        super(DywypiShell, self).start()
-
-        #self.hub.network_connected(self.network, self)
-
     def add_log_line(self, line, color='default'):
         # TODO generalize this color thing in a way compatible with irc, html, ...
         # TODO i super duper want this for logging, showing incoming/outgoing
@@ -517,7 +304,6 @@ class DywypiShell(UrwidProtocol):
             ansi_codes.append(BOLD_CODES[new_style.bold])
 
         return '\x1b[' + ';'.join(ansi_codes) + 'm'
-
 
 
 # TODO this shouldn't need to exist i think
@@ -606,17 +392,20 @@ class ShellClient:
     def connect(self):
         # TODO would be nice to intercept stdout and turn it into logging?
 
-        # TODO why do i not need this???
-        #from asyncio.unix_events import _set_nonblocking
-        #_set_nonblocking(self.stdin.fileno())
-
-        proto = DywypiShell(self.loop, self.network, writer=self.stdout)
+        # I need fdopen() here for some complicated reasons relating to how
+        # stdin/stdout work; they're references to the same bidirectional pty,
+        # which something something a miracle occurs, causes asyncio to get
+        # confused about when they're readable or writable, which in turn
+        # causes os.write() to fail eventually.
+        writer, _ = yield from self.loop.connect_write_pipe(
+            asyncio.Protocol, os.fdopen(0, 'wb'))
+        proto = DywypiShell(self.loop, self.network, writer=writer)
         _, self.protocol = yield from self.loop.connect_read_pipe(
             lambda: proto, self.stdin)
 
     @asyncio.coroutine
     def disconnect(self):
-        self.protocol.stop()
+        self.protocol.connection_lost(None)
         # TODO close reader?  or is that the protocol's problem?
 
     @asyncio.coroutine
