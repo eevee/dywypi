@@ -6,6 +6,7 @@ import logging
 from urllib.parse import urlparse
 
 from dywypi.dialect.irc.client import IRCClient
+from dywypi.dialect.showdown.client import ShowdownClient
 from dywypi.plugin import PluginManager
 from dywypi.state import Network
 from dywypi.state import Server
@@ -25,6 +26,9 @@ class Brain:
         self.networks = {}
         self.plugin_manager = PluginManager()
 
+    # TODO TODO TODO FOR REAL NEXT THING: build that magical argparse env ini
+    # yaml config whatever thing and use it here where it's kind of more
+    # immediately urgent
     def configure_from_argv(self, argv=None):
         # Scan for known plugins first
         self.plugin_manager.scan_package('dywypi.plugins')
@@ -141,6 +145,8 @@ class Brain:
         # TODO dying for some registration here.
         if uri.scheme in ('irc', 'ircs'):
             client_class = IRCClient
+        elif uri.scheme in ('showdown',):
+            client_class = ShowdownClient
         elif uri.scheme in ('shell',):
             # TODO import down here in case no urwid
             from dywypi.dialect.shell import ShellClient
@@ -164,6 +170,7 @@ class Brain:
 
         # TODO hmm should this stuff be delegated to a dialect?  some of it may
         # not make sense for some dialects
+        # TODO for example, it makes no sense for showdown
         network = Network(name)
         if uri.username:
             network.add_preferred_nick(uri.username)

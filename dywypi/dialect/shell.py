@@ -238,7 +238,7 @@ class DywypiShell(UrwidProtocol):
         key = self.pane.keypress(listsize, key)
         if key:
             # `key` gets returned if it wasn't consumed
-            self.add_log_line(key)
+            self.add_log_line(repr(key))
 
     def add_log_line(self, line, color='default'):
         # TODO generalize this color thing in a way compatible with irc, html, ...
@@ -249,8 +249,6 @@ class DywypiShell(UrwidProtocol):
     def _print_text(self, *encoded_text):
         self.pane.body.append(urwid.Text(list(encoded_text)))
         self.pane.set_focus(len(self.pane.body) - 1)
-        # TODO should this just mark dirty??
-        self.urwid_loop.draw_screen()
 
     def handle_line(self, line):
         """Deal with a line of input."""
@@ -276,6 +274,18 @@ class DywypiShell(UrwidProtocol):
             raw_message = ShellMessage(self.me.name, command_string)
             event = Message(self, raw_message)
             self.event_queue.put_nowait(event)
+
+        elif line.startswith('>'):
+            text = line[1:]
+            # TODO LOL THIS IS REAL BAD
+            from __main__ import brain
+            for client in brain.current_clients:
+                if type(client).__name__ == 'ShowdownClient':
+                    break
+            asyncio.ensure_future(client.send_raw(client._current_room, text))
+
+        # TODO need a way to generally use my own api
+
 
     def _send_message(self, target, message, as_notice=True):
         # TODO cool color
